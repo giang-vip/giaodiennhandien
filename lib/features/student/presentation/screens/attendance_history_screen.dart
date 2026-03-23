@@ -1,37 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../../viewmodel/attendance_viewmodel.dart';
+import '../../viewmodel/attendance_history_viewmodel.dart';
 
-class AttendanceHistoryScreen extends StatelessWidget {
-  const AttendanceHistoryScreen({super.key});
+class AttendanceHistoryScreen extends StatefulWidget {
+  final Map<String, dynamic>? arguments;
+  const AttendanceHistoryScreen({super.key, this.arguments});
+
+  @override
+  State<AttendanceHistoryScreen> createState() => _AttendanceHistoryScreenState();
+}
+
+class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
+  String className = "Lớp học";
+  String classId = "0";
+
+  @override
+  void initState() {
+    super.initState();
+    className = widget.arguments?['className'] ?? "Lớp học";
+    classId = widget.arguments?['classId']?.toString() ?? "0";
+
+    // Gọi API khi vừa vào màn hình
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AttendanceHistoryViewModel>().fetchHistory(classId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final viewModel = context.watch<AttendanceViewModel>();
+    final viewModel = context.watch<AttendanceHistoryViewModel>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Attendance History')),
-      body: Column(
+      appBar: AppBar(title: Text('Lịch sử: $className')),
+      body: viewModel.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
         children: [
           _buildOverallStats(viewModel),
           const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text("Recent Sessions", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              child: Text("Chi tiết các buổi học", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
             ),
           ),
           Expanded(
-            child: ListView.separated(
+            child: viewModel.history.isEmpty
+                ? const Center(child: Text("Chưa có dữ liệu điểm danh nào."))
+                : ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemCount: viewModel.history.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final record = viewModel.history[index];
-                final bool isPresent = record.status == 'Present';
+                final bool isPresent = record.status.toUpperCase() == 'PRESENT';
+
                 return Card(
-                  elevation: 0,
+                  elevation: 1,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(color: Colors.grey.shade200),
@@ -44,16 +70,16 @@ class AttendanceHistoryScreen extends StatelessWidget {
                         color: isPresent ? Colors.green : Colors.red,
                       ),
                     ),
-                    title: Text(record.date, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('Time: ${record.time}'),
+                    title: Text('Ngày: ${record.date}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('Giờ điểm danh: ${record.time}'),
                     trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: isPresent ? Colors.green : Colors.red,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        record.status,
+                        isPresent ? 'CÓ MẶT' : 'VẮNG MẶT',
                         style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -67,7 +93,7 @@ class AttendanceHistoryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildOverallStats(AttendanceViewModel viewModel) {
+  Widget _buildOverallStats(AttendanceHistoryViewModel viewModel) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(32),
@@ -96,7 +122,7 @@ class AttendanceHistoryScreen extends StatelessWidget {
                     '${viewModel.percentage.toStringAsFixed(0)}%',
                     style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
                   ),
-                  const Text('Attendance', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const Text('Tỷ lệ đi học', style: TextStyle(color: Colors.white70, fontSize: 14)),
                 ],
               ),
             ],
@@ -105,9 +131,9 @@ class AttendanceHistoryScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildStatItem('Present', viewModel.totalPresent.toString(), Icons.check_circle_outline),
-              _buildStatItem('Absent', viewModel.totalAbsent.toString(), Icons.error_outline),
-              _buildStatItem('Sessions', viewModel.history.length.toString(), Icons.event_note),
+              _buildStatItem('Có mặt', viewModel.totalPresent.toString(), Icons.check_circle_outline),
+              _buildStatItem('Vắng/Trễ', viewModel.totalAbsent.toString(), Icons.error_outline),
+              _buildStatItem('Tổng buổi', viewModel.history.length.toString(), Icons.event_note),
             ],
           )
         ],
@@ -118,10 +144,10 @@ class AttendanceHistoryScreen extends StatelessWidget {
   Widget _buildStatItem(String label, String value, IconData icon) {
     return Column(
       children: [
-        Icon(icon, color: Colors.white70, size: 20),
+        Icon(icon, color: Colors.white70, size: 24),
         const SizedBox(height: 8),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
       ],
     );
   }

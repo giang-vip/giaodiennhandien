@@ -75,17 +75,30 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: authViewModel.isLoading
                     ? null
                     : () async {
-                        final role = await authViewModel.login(
-                          _userController.text,
-                          _passController.text,
-                        );
-                        if (mounted) {
-                          Navigator.pushReplacementNamed(
-                            context,
-                            role == 'teacher' ? AppRoutes.teacherHome : AppRoutes.studentHome,
-                          );
-                        }
-                      },
+                  try {
+                    final role = await authViewModel.login(
+                      _userController.text,
+                      _passController.text,
+                    );
+
+                    if (mounted && role != null) {
+                      Navigator.pushReplacementNamed(
+                        context,
+                        role == 'teacher' ? AppRoutes.teacherHome : AppRoutes.studentHome,
+                      );
+                    }
+                  } catch (e) {
+                    // Hiển thị lỗi từ backend (ví dụ: Sai mật khẩu)
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(e.toString()),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,

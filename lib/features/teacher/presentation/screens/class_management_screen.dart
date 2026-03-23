@@ -1,17 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../viewmodel/teacher_viewmodel.dart';
-import '../../../../data/models/app_models.dart';
+import '../../viewmodel/class_management_viewmodel.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../app/app_routes.dart';
 import 'set_location_screen.dart';
 
-class ClassManagementScreen extends StatelessWidget {
+class ClassManagementScreen extends StatefulWidget {
   const ClassManagementScreen({super.key});
 
   @override
+  State<ClassManagementScreen> createState() => _ClassManagementScreenState();
+}
+
+class _ClassManagementScreenState extends State<ClassManagementScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<ClassManagementViewModel>().fetchClasses();
+    });
+  }
+
+  // =========================================================
+  // Hàm tạo Thông báo (SnackBar) trôi nổi ở TRÊN CÙNG
+  // =========================================================
+  void _showTopNotification(BuildContext context, String message, Color bgColor, IconData icon) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14))),
+          ],
+        ),
+        backgroundColor: bgColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height - 160, left: 16, right: 16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final viewModel = context.watch<TeacherViewModel>();
+    final viewModel = context.watch<ClassManagementViewModel>();
 
     return Scaffold(
       appBar: AppBar(
@@ -19,31 +53,30 @@ class ClassManagementScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
-            tooltip: 'Create new class',
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.createClass),
+            onPressed: () {
+              Navigator.pushNamed(context, AppRoutes.createClass).then((_) => viewModel.fetchClasses());
+            },
           ),
         ],
       ),
-      body: viewModel.myClasses.isEmpty
+      body: viewModel.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : viewModel.realClasses.isEmpty
           ? Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.class_outlined, size: 64, color: Colors.grey.shade400),
             const SizedBox(height: 16),
-            const Text(
-              'No classes found.\nCreate one to get started!',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
+            const Text('No classes found.\nCreate one to get started!', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey)),
           ],
         ),
       )
           : ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: viewModel.myClasses.length,
+        itemCount: viewModel.realClasses.length,
         itemBuilder: (context, index) {
-          final item = viewModel.myClasses[index];
+          final item = viewModel.realClasses[index];
           final bool isGpsConfigured = item.roomId != null && item.radius != null;
 
           return Card(
@@ -51,17 +84,13 @@ class ClassManagementScreen extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 16),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: item.isAttendanceOpen ? Colors.green : Colors.transparent,
-                width: 1.5,
-              ),
+              side: BorderSide(color: item.isAttendanceOpen ? Colors.green : Colors.transparent, width: 1.5),
             ),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Hàng 1: Tên lớp và nút Xóa (Sử dụng Expanded an toàn)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -69,17 +98,9 @@ class ClassManagementScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              item.className,
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                            Text(item.className, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
-                            Text(
-                              'Time: ${item.startTime} - ${item.endTime}',
-                              style: const TextStyle(color: AppColors.textSecondary),
-                            ),
+                            Text('Time: ${item.startTime} - ${item.endTime}', style: const TextStyle(color: AppColors.textSecondary)),
                           ],
                         ),
                       ),
@@ -91,7 +112,6 @@ class ClassManagementScreen extends StatelessWidget {
                   ),
                   const Divider(height: 24),
 
-                  // Hàng 2: Bật tắt điểm danh
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -99,16 +119,10 @@ class ClassManagementScreen extends StatelessWidget {
                         child: Text.rich(
                           TextSpan(
                             children: [
-                              const TextSpan(
-                                text: 'Attendance is ',
-                                style: TextStyle(color: AppColors.textSecondary),
-                              ),
+                              const TextSpan(text: 'Attendance is ', style: TextStyle(color: AppColors.textSecondary)),
                               TextSpan(
                                 text: item.isAttendanceOpen ? 'OPEN' : 'CLOSED',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: item.isAttendanceOpen ? Colors.green : Colors.red,
-                                ),
+                                style: TextStyle(fontWeight: FontWeight.bold, color: item.isAttendanceOpen ? Colors.green : Colors.red),
                               ),
                             ],
                           ),
@@ -116,11 +130,16 @@ class ClassManagementScreen extends StatelessWidget {
                       ),
                       Switch(
                         value: item.isAttendanceOpen,
-                        onChanged: (value) {
+                        onChanged: (value) async {
                           if (value) {
                             _showTimerDialog(context, viewModel, item.id);
                           } else {
-                            viewModel.toggleAttendance(item.id, 0);
+                            try {
+                              await viewModel.toggleAttendance(item.id, 0);
+                              if (context.mounted) _showTopNotification(context, 'Đã ĐÓNG điểm danh!', Colors.orange, Icons.stop_circle_outlined);
+                            } catch (e) {
+                              if (context.mounted) _showTopNotification(context, 'Lỗi: ${e.toString().replaceAll("Exception: ", "")}', Colors.red, Icons.error);
+                            }
                           }
                         },
                         activeColor: Colors.green,
@@ -130,14 +149,10 @@ class ClassManagementScreen extends StatelessWidget {
                   if (item.isAttendanceOpen)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Ends in: ${item.attendanceDuration} minutes (simulated)',
-                        style: TextStyle(color: Colors.green[700], fontSize: 12),
-                      ),
+                      child: Text('Đang mở điểm danh...', style: TextStyle(color: Colors.green[700], fontSize: 12, fontStyle: FontStyle.italic)),
                     ),
                   const SizedBox(height: 8),
 
-                  // Hàng 3: Trạng thái GPS và nút Set Location (Sử dụng Wrap để chống lỗi tràn màn hình)
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -145,33 +160,17 @@ class ClassManagementScreen extends StatelessWidget {
                     alignment: WrapAlignment.spaceBetween,
                     children: [
                       Chip(
-                        avatar: Icon(
-                          isGpsConfigured ? Icons.gps_fixed : Icons.gps_not_fixed,
-                          color: isGpsConfigured ? Colors.white : Colors.grey,
-                          size: 16,
-                        ),
+                        avatar: Icon(isGpsConfigured ? Icons.gps_fixed : Icons.gps_not_fixed, color: isGpsConfigured ? Colors.white : Colors.grey, size: 16),
                         backgroundColor: isGpsConfigured ? AppColors.primary : Colors.grey.shade200,
-                        label: Text(
-                          isGpsConfigured ? 'GPS Configured' : 'No GPS Config',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isGpsConfigured ? Colors.white : Colors.black87,
-                          ),
-                        ),
+                        label: Text(isGpsConfigured ? 'GPS Configured' : 'No GPS Config', style: TextStyle(fontSize: 12, color: isGpsConfigured ? Colors.white : Colors.black87)),
                       ),
                       ElevatedButton.icon(
                         onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => SetLocationScreen(classModel: item)),
-                          );
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => SetLocationScreen(classModel: item)));
                         },
                         icon: const Icon(Icons.location_on_outlined, size: 16),
                         label: const Text('Set Location'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                        ),
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.secondary, padding: const EdgeInsets.symmetric(horizontal: 12)),
                       ),
                     ],
                   ),
@@ -184,11 +183,11 @@ class ClassManagementScreen extends StatelessWidget {
     );
   }
 
-  void _showTimerDialog(BuildContext context, TeacherViewModel vm, String classId) {
+  void _showTimerDialog(BuildContext context, ClassManagementViewModel vm, String classId) {
     final controller = TextEditingController(text: "30");
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Open Attendance'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -199,20 +198,27 @@ class ClassManagementScreen extends StatelessWidget {
               controller: controller,
               keyboardType: TextInputType.number,
               autofocus: true,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                suffixText: 'minutes',
-              ),
+              decoration: const InputDecoration(border: OutlineInputBorder(), suffixText: 'minutes'),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               final minutes = int.tryParse(controller.text) ?? 30;
-              vm.toggleAttendance(classId, minutes);
-              Navigator.pop(context);
+              Navigator.pop(ctx); // Tắt popup trước khi chạy
+
+              try {
+                await vm.toggleAttendance(classId, minutes);
+                if (context.mounted) {
+                  _showTopNotification(context, 'Mở phiên điểm danh thành công!', Colors.green, Icons.check_circle);
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  _showTopNotification(context, 'Lỗi: ${e.toString().replaceAll("Exception: ", "")}', Colors.red, Icons.error_outline);
+                }
+              }
             },
             child: const Text('Start Session'),
           ),

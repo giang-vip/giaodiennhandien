@@ -27,8 +27,8 @@ class AppRouter {
       case AppRoutes.attendance:
         final args = settings.arguments as Map<String, dynamic>?;
         return MaterialPageRoute(builder: (_) => AttendanceScreen(classData: args));
-      case AppRoutes.attendanceHistory:
-        return MaterialPageRoute(builder: (_) => const AttendanceHistoryScreen());
+       case AppRoutes.attendanceHistory:
+         return MaterialPageRoute(builder: (_) => const AttendanceHistoryScreen());
       case AppRoutes.teacherHome:
         return MaterialPageRoute(builder: (_) => const TeacherHomeScreen());
       case AppRoutes.createClass:
@@ -38,8 +38,14 @@ class AppRouter {
       case AppRoutes.attendanceStats:
         return MaterialPageRoute(builder: (_) => const AttendanceStatisticsScreen());
       case AppRoutes.studentStats:
-        final className = settings.arguments as String? ?? 'Class';
-        return MaterialPageRoute(builder: (_) => StudentStatsScreen(className: className));
+      // Nhận dữ liệu dưới dạng Map (chứa cả className và classId)
+        final args = settings.arguments as Map<String, dynamic>?;
+        final className = args?['className'] ?? 'Class';
+        final classId = args?['classId']?.toString() ?? '0';
+        return MaterialPageRoute(builder: (_) => StudentStatsScreen(
+          className: className,
+          classId: classId,)
+        );
       default:
         return MaterialPageRoute(
           builder: (_) => Scaffold(

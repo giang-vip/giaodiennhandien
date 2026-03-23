@@ -2,16 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../app/app_routes.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../../viewmodel/teacher_viewmodel.dart';
+import '../../viewmodel/teacher_home_viewmodel.dart'; // Đổi import
 
-class TeacherHomeScreen extends StatelessWidget {
+class TeacherHomeScreen extends StatefulWidget {
   const TeacherHomeScreen({super.key});
 
   @override
+  State<TeacherHomeScreen> createState() => _TeacherHomeScreenState();
+}
+
+class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<TeacherHomeViewModel>().fetchDashboardData();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final viewModel = context.watch<TeacherViewModel>();
-    final totalClasses = viewModel.myClasses.length;
-    final openClasses = viewModel.myClasses.where((c) => c.isAttendanceOpen).length;
+    final viewModel = context.watch<TeacherHomeViewModel>();
 
     return Scaffold(
       appBar: AppBar(
@@ -23,9 +34,11 @@ class TeacherHomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Column(
+      body: viewModel.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
         children: [
-          _buildSummaryHeader(totalClasses, openClasses),
+          _buildSummaryHeader(viewModel.totalClasses, viewModel.openClasses),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -34,27 +47,9 @@ class TeacherHomeScreen extends StatelessWidget {
                 crossAxisSpacing: 16,
                 mainAxisSpacing: 16,
                 children: [
-                  _buildFeatureCard(
-                    context,
-                    'Create New Class',
-                    Icons.add_circle_outline,
-                    Colors.blue,
-                    AppRoutes.createClass,
-                  ),
-                  _buildFeatureCard(
-                    context,
-                    'Manage My Classes',
-                    Icons.class_outlined,
-                    Colors.orange,
-                    AppRoutes.manageClasses,
-                  ),
-                  _buildFeatureCard(
-                    context,
-                    'View Statistics',
-                    Icons.bar_chart_outlined,
-                    Colors.green,
-                    AppRoutes.attendanceStats,
-                  ),
+                  _buildFeatureCard(context, 'Create New Class', Icons.add_circle_outline, Colors.blue, AppRoutes.createClass),
+                  _buildFeatureCard(context, 'Manage My Classes', Icons.class_outlined, Colors.orange, AppRoutes.manageClasses),
+                  _buildFeatureCard(context, 'View Statistics', Icons.bar_chart_outlined, Colors.green, AppRoutes.attendanceStats),
                 ],
               ),
             ),
@@ -71,20 +66,10 @@ class TeacherHomeScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.primary,
         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
       ),
       child: Column(
         children: [
-          const Text(
-            'Overview',
-            style: TextStyle(color: Colors.white70, fontSize: 16),
-          ),
+          const Text('Overview', style: TextStyle(color: Colors.white70, fontSize: 16)),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -101,46 +86,30 @@ class TeacherHomeScreen extends StatelessWidget {
   Widget _buildSummaryItem(String label, String value) {
     return Column(
       children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
         Text(label, style: const TextStyle(color: Colors.white70)),
       ],
     );
   }
 
-  Widget _buildFeatureCard(
-    BuildContext context,
-    String title,
-    IconData icon,
-    Color color,
-    String route,
-  ) {
+  Widget _buildFeatureCard(BuildContext context, String title, IconData icon, Color color, String route) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
-        onTap: () => Navigator.pushNamed(context, route),
+        onTap: () {
+          // Sau khi tạo lớp hoặc quản lý lớp xong quay lại -> Tự reload Dashboard
+          Navigator.pushNamed(context, route).then((_) {
+            if(context.mounted) context.read<TeacherHomeViewModel>().fetchDashboardData();
+          });
+        },
         borderRadius: BorderRadius.circular(16),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircleAvatar(
-              radius: 30,
-              backgroundColor: color.withOpacity(0.1),
-              child: Icon(icon, size: 30, color: color),
-            ),
+            CircleAvatar(radius: 30, backgroundColor: color.withOpacity(0.1), child: Icon(icon, size: 30, color: color)),
             const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
       ),
