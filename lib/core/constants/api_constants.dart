@@ -13,7 +13,7 @@ class ApiConstants {
   // TỪ NAY VỀ SAU, BẠN CHỈ CẦN SỬA DUY NHẤT DÒNG SỐ 16 NÀY KHI ĐỔI MẠNG!
   // =========================================================================
 
-  static const String ipAddress = '192.168.67.5'; // <-- SỬA ĐỊA CHỈ IP Ở ĐÂY
+  static const String ipAddress = '192.168.65.1'; // <-- SỬA ĐỊA CHỈ IP Ở ĐÂY
   static const String port = '8081';              // <-- CỔNG SPRING BOOT
 
   // Đường dẫn gốc chung cho toàn bộ các API (Lớp, Phòng, Điểm danh...)
@@ -25,6 +25,6 @@ class ApiConstants {
 
   // đường dẫn của model nhận diện khuôn mặt
   // static const String faceRecognitionUrl = 'http://$ipAddress:$port/face-recognition';
-  static const String aiBaseUrl = "http://192.168.67.5:8000";
+  static const String aiBaseUrl = "http://192.168.65.1:8000";
 
 }
