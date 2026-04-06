@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../core/constants/api_constants.dart';
 import '../../models/app_models.dart';
 
@@ -10,41 +12,53 @@ class AttendanceRemoteDataSource {
 
   Future<List<AppClassModel>> getAttendanceClasses() async {
     try {
-      // 1. Gọi API lấy danh sách lớp
+      final prefs = await SharedPreferences.getInstance();
+
+      //  LẤY ACCESS TOKEN CHUẨN
+      final accessToken = prefs.getString('access_token');
+
+      if (accessToken == null || accessToken.isEmpty) {
+        throw Exception("Chưa đăng nhập");
+      }
+
+      print("ACCESS TOKEN GỬI LÊN: $accessToken");
+
       final response = await client.get(
-        Uri.parse('${ApiConstants.baseUrl}/classes'), // Đảm bảo URL này đúng trong BE
+        Uri.parse('${ApiConstants.baseUrl}/classes'),
         headers: {
           'Content-Type': 'application/json',
-          // 'Authorization': 'Bearer <token>', // Thêm nếu BE yêu cầu login
+          'Authorization': 'Bearer $accessToken',
         },
       );
 
-      if (response.statusCode == 200) {
-        // 2. Giải mã JSON
-        final dynamic decodedData = json.decode(response.body);
+      print("STATUS CODE: ${response.statusCode}");
+      print("BODY: ${response.body}");
 
-        // 3. Xử lý lỗi "Map vs List" ở đây
+      if (response.statusCode == 200) {
+        final decodedData = json.decode(response.body);
+
         List<dynamic> list;
 
         if (decodedData is List) {
-          // Trường hợp BE trả về thẳng: [{}, {}]
           list = decodedData;
         } else if (decodedData is Map && decodedData.containsKey('data')) {
-          // Trường hợp BE trả về bọc: {"data": [{}, {}]}
           list = decodedData['data'];
         } else {
-          // Nếu BE trả về Map mà không có key 'data' (như lỗi bạn gặp)
-          print("Dữ liệu BE trả về không đúng định dạng List: $decodedData");
+          print("Sai format JSON");
           return [];
         }
 
-        // 4. Chuyển đổi từ List JSON sang List Object Flutter
-        return list.map((item) => AppClassModel.fromJson(item)).toList();
+        return list.map((e) => AppClassModel.fromJson(e)).toList();
+      }
+
+      // 🔥 QUAN TRỌNG: phân biệt lỗi rõ ràng
+      else if (response.statusCode == 401) {
+        throw Exception("401 - Token sai hoặc hết hạn");
       } else {
-        throw Exception('Lỗi Server: ${response.statusCode}');
+        throw Exception("Server lỗi: ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ LỖI TẠI DATASOURCE: $e");
+      print("❌ ERROR: $e");
       rethrow;
     }
   }

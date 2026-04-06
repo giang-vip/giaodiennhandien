@@ -34,7 +34,7 @@ class StudentStatsViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token') ?? '';
+      final token = prefs.getString('access_token') ?? '';
 
       // ⚠️ ĐƯỜNG LINK ĐANG GỌI TẠM THỜI (BẠN CHÚ Ý THEO DÕI LOG XEM CÓ BỊ 404 KHÔNG NHÉ)
       final url = Uri.parse('$_baseUrl/attendance/class/$classId');

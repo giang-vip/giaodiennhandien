@@ -23,7 +23,7 @@ class CreateClassViewModel extends ChangeNotifier {
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
       final jwtData = _decodeJwt(token!);
       final int myTeacherId = int.parse(jwtData['sub']!.toString());
 

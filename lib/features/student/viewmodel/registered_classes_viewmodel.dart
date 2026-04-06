@@ -41,7 +41,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
       final myStudentId = _getMyStudentId(token!);
 
       // BƯỚC 1: Lấy danh sách ID đã đăng ký

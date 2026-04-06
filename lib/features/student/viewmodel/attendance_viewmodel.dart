@@ -124,7 +124,7 @@ class AttendanceViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token') ?? '';
+      final token = prefs.getString('access_token') ?? '';
 
       // ======================================================================
       // BƯỚC 1: ĐI LẤY TỌA ĐỘ LỚP HỌC DỰA VÀO LOCATION_ID

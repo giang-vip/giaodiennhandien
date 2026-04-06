@@ -14,63 +14,105 @@ class ClassListViewModel extends ChangeNotifier {
   List<AppClassModel> _availableClasses = [];
   List<AppClassModel> get availableClasses => _availableClasses;
 
+  // ================= JWT =================
   int _getMyStudentId(String token) {
     try {
       final payload = token.split('.')[1];
-      final decoded = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(payload))));
+      final decoded = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(payload))));
       return int.parse(decoded['sub'].toString());
     } catch (e) {
       return 0;
     }
   }
 
+  // ================= FETCH =================
   Future<void> fetchAvailableClasses() async {
     _isLoading = true;
     notifyListeners();
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
-      final myStudentId = _getMyStudentId(token!);
 
-      // BƯỚC 1: Lấy danh sách ID đã đăng ký
+      // ✅ FIX QUAN TRỌNG: dùng access_token
+      final token = prefs.getString('access_token');
+
+      if (token == null || token.isEmpty) {
+        throw Exception("❌ Chưa đăng nhập");
+      }
+
+      print("TOKEN FETCH: $token");
+
+      final myStudentId = _getMyStudentId(token);
+
+      // ================= STEP 1 =================
       final myRegResponse = await http.get(
         Uri.parse('$_baseUrl/class-registrations/$myStudentId/classes'),
         headers: {'Authorization': 'Bearer $token'},
       );
 
       Set<String> registeredIds = {};
+
       if (myRegResponse.statusCode == 200) {
-        final List<dynamic> myRegData = jsonDecode(utf8.decode(myRegResponse.bodyBytes));
-        for (var item in myRegData) {
-          final cId = item['classId']?.toString() ?? item['classRoom']?['classId']?.toString() ?? '0';
+        final decoded =
+        jsonDecode(utf8.decode(myRegResponse.bodyBytes));
+
+        final List list = decoded['data'] is List
+            ? decoded['data']
+            : (decoded['data']?['content'] ?? []);
+
+        for (var item in list) {
+          final cId = item['classId']?.toString() ??
+              item['classRoom']?['classId']?.toString() ??
+              '0';
           registeredIds.add(cId);
         }
       }
 
-      // BƯỚC 2: Lấy tất cả thông tin lớp và CHỈ GIỮ LẠI LỚP CHƯA ĐĂNG KÝ
+      // ================= STEP 2 =================
       final response = await http.get(
         Uri.parse('$_baseUrl/classrooms?page=0&size=50'),
         headers: {'Authorization': 'Bearer $token'},
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
+      print("STATUS: ${response.statusCode}");
+      print("BODY: ${response.body}");
 
-        _availableClasses = (data['content'] as List)
+      if (response.statusCode == 200) {
+        final decoded =
+        jsonDecode(utf8.decode(response.bodyBytes));
+
+        final List list = decoded['data'] is List
+            ? decoded['data']
+            : (decoded['data']?['content'] ?? []);
+
+        _availableClasses = list
             .where((item) {
-          final checkId = item['classId']?.toString() ?? item['id']?.toString() ?? '0';
+          final checkId = item['classId']?.toString() ??
+              item['id']?.toString() ??
+              '0';
           return !registeredIds.contains(checkId);
         })
             .map((item) => AppClassModel(
-          id: item['classId']?.toString() ?? item['id']?.toString() ?? '0',
-          teacherId: item['teacherId']?.toString() ?? '0',
-          className: item['title'] ?? 'Chưa có tên',
-          description: item['description'] ?? 'Chưa có mô tả',
-          teacherName: item['teacherName'] ?? 'Giảng viên',
-          startTime: item['startDate'] ?? 'N/A',
-          endTime: item['endDate'] ?? 'N/A',
-        )).toList();
+          id: item['classId']?.toString() ??
+              item['id']?.toString() ??
+              '0',
+          teacherId:
+          item['teacherId']?.toString() ?? '0',
+          className:
+          item['title'] ?? 'Chưa có tên',
+          description:
+          item['description'] ?? 'Chưa có mô tả',
+          teacherName:
+          item['teacherName'] ?? 'Giảng viên',
+          startTime:
+          item['startDate'] ?? 'N/A',
+          endTime:
+          item['endDate'] ?? 'N/A',
+        ))
+            .toList();
+      } else if (response.statusCode == 401) {
+        throw Exception("❌ Unauthorized");
       }
     } catch (e) {
       print("❌ LỖI LẤY LỚP: $e");
@@ -80,14 +122,22 @@ class ClassListViewModel extends ChangeNotifier {
     }
   }
 
+  // ================= REGISTER =================
   Future<bool> registerClass(String classId) async {
     try {
       _isLoading = true;
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
-      final myStudentId = _getMyStudentId(token!);
+
+      // ✅ FIX QUAN TRỌNG
+      final token = prefs.getString('access_token');
+
+      if (token == null || token.isEmpty) {
+        throw Exception("❌ Chưa đăng nhập");
+      }
+
+      final myStudentId = _getMyStudentId(token);
 
       final bodyData = {
         "classId": int.parse(classId),
@@ -96,15 +146,17 @@ class ClassListViewModel extends ChangeNotifier {
 
       final response = await http.post(
         Uri.parse('$_baseUrl/class-registrations'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token'
+        },
         body: jsonEncode(bodyData),
       );
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return true;
-      }
-      return false;
+      return response.statusCode == 200 ||
+          response.statusCode == 201;
     } catch (e) {
+      print("❌ REGISTER ERROR: $e");
       return false;
     } finally {
       _isLoading = false;

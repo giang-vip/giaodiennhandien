@@ -44,7 +44,7 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
       // 🛠️ THỬ GỌI API THEO CHUẨN (Bạn check log xem nếu 404 thì báo mình chỉnh lại link)
       final url = Uri.parse('$_baseUrl/attendance/user/$myStudentId');
 
-      print("\n================= 🚀 BẮT ĐẦU GỌI API LỊCH SỬ =================");
+      print("\n=================  BẮT ĐẦU GỌI API LỊCH SỬ =================");
       print("👉 GỌI LINK: $url");
 
       final response = await http.get(url, headers: {

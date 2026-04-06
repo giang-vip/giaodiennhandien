@@ -45,7 +45,7 @@ class TeacherViewModel extends ChangeNotifier {
   Future<void> fetchLocations() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
       final response = await http.get(
         Uri.parse('$_baseUrl/locations?page=0&size=50'),
         headers: {'Authorization': 'Bearer $token'},
@@ -69,7 +69,7 @@ class TeacherViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
 
       // Lấy ID của giáo viên từ Token
       final jwtData = _decodeJwt(token!);
@@ -116,7 +116,7 @@ class TeacherViewModel extends ChangeNotifier {
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
 
       // Lấy ID của chính mình để tạo lớp
       final jwtData = _decodeJwt(token!);
@@ -170,7 +170,7 @@ class TeacherViewModel extends ChangeNotifier {
         notifyListeners();
 
         final prefs = await SharedPreferences.getInstance();
-        final token = prefs.getString('jwt_token');
+        final token = prefs.getString('access_token');
 
         // 2. NGHIỆP VỤ THỜI GIAN THEO YÊU CẦU CỦA BẠN:
         final startTime = DateTime.now(); // Lấy thời gian hiện tại làm bắt đầu
@@ -237,7 +237,7 @@ class TeacherViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
 
       // Đổi trạng thái thành CLOSED
       sessionData['status'] = "CLOSED";
@@ -251,12 +251,12 @@ class TeacherViewModel extends ChangeNotifier {
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        print("✅ ĐÓNG ĐIỂM DANH THÀNH CÔNG TẠI BACKEND (Session ID: $sessionId)");
+        print(" ĐÓNG ĐIỂM DANH THÀNH CÔNG TẠI BACKEND (Session ID: $sessionId)");
       } else {
-        print("❌ LỖI API ĐÓNG: ${response.body}");
+        print(" LỖI API ĐÓNG: ${response.body}");
       }
     } catch (e) {
-      print("❌ LỖI EXCEPTION ĐÓNG: $e");
+      print("LỖI EXCEPTION ĐÓNG: $e");
     } finally {
       // Dọn dẹp bộ nhớ và tắt UI
       _activeSessionData.remove(classId);

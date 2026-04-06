@@ -22,7 +22,7 @@ class SetLocationViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
 
       // Gọi API GET /locations của Spring Boot
       final response = await http.get(
@@ -46,7 +46,7 @@ class SetLocationViewModel extends ChangeNotifier {
         }).toList();
       }
     } catch (e) {
-      print("❌ LỖI LẤY DANH SÁCH PHÒNG HỌC: $e");
+      print("LỖI LẤY DANH SÁCH PHÒNG HỌC: $e");
     } finally {
       _isLoading = false;
       notifyListeners(); // Tắt vòng xoay

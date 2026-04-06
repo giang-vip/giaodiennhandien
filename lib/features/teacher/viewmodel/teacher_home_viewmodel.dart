@@ -25,7 +25,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token');
+      final token = prefs.getString('access_token');
       final jwtData = _decodeJwt(token!);
       final String myTeacherId = jwtData['sub']?.toString() ?? '';
 
@@ -80,7 +80,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
         openClasses = uniqueOpenClasses.length;
       }
     } catch (e) {
-      print("❌ LỖI DATA DASHBOARD: $e");
+      print("LỖI DATA DASHBOARD: $e");
     } finally {
       _isLoading = false;
       notifyListeners();
