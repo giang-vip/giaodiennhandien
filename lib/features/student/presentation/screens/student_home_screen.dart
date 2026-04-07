@@ -14,8 +14,14 @@ class StudentHomeScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () => Navigator.pushReplacementNamed(context, AppRoutes.login),
-          )
+            onPressed: () {
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                AppRoutes.login,
+                    (route) => false,
+              );
+            },
+          ),
         ],
       ),
       body: Padding(
@@ -25,16 +31,16 @@ class StudentHomeScreen extends StatelessWidget {
             const SizedBox(height: 20),
             _buildFeatureCard(
               context,
-              'Available Classes',
-              'Browse and register for new classes',
+              'Đăng ký lớp học',
+              'Xem tất cả lớp và đăng ký lớp mới',
               Icons.search,
               AppRoutes.classList,
             ),
             const SizedBox(height: 16),
             _buildFeatureCard(
               context,
-              'Registered Classes',
-              'View your classes and take attendance',
+              'Lớp của tôi',
+              'Xem lớp đã đăng ký và vào điểm danh',
               Icons.collections_bookmark,
               AppRoutes.registeredClasses,
             ),
@@ -44,18 +50,36 @@ class StudentHomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildFeatureCard(BuildContext context, String title, String subtitle, IconData icon, String route) {
+  Widget _buildFeatureCard(
+      BuildContext context,
+      String title,
+      String subtitle,
+      IconData icon,
+      String route,
+      ) {
     return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      elevation: 2,
       child: ListTile(
         contentPadding: const EdgeInsets.all(20),
         leading: CircleAvatar(
           backgroundColor: AppColors.primary.withOpacity(0.1),
           child: Icon(icon, color: AppColors.primary),
         ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.pushNamed(context, route),
+        onTap: () {
+          Navigator.pushNamed(context, route);
+        },
       ),
     );
   }

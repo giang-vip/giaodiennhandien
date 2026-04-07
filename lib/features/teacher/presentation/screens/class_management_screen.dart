@@ -160,14 +160,32 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                           color: Colors.redAccent,
                         ),
                         onPressed: () async {
-                          await viewModel.deleteClass(item.id);
-                          if (context.mounted) {
-                            _showTopNotification(
-                              context,
-                              'Xóa lớp thành công!',
-                              Colors.green,
-                              Icons.check_circle,
+                          try {
+                            print(
+                              "DELETE CLICKED: classId=${item.id}",
                             );
+                            await viewModel.deleteClass(item.id);
+                            if (context.mounted) {
+                              _showTopNotification(
+                                context,
+                                'Xóa lớp thành công!',
+                                Colors.green,
+                                Icons.check_circle,
+                              );
+                            }
+                          } catch (e) {
+                            print("DELETE ERROR UI: $e");
+                            if (context.mounted) {
+                              _showTopNotification(
+                                context,
+                                e.toString().replaceAll(
+                                  "Exception: ",
+                                  "",
+                                ),
+                                Colors.red,
+                                Icons.error_outline,
+                              );
+                            }
                           }
                         },
                       ),
@@ -175,8 +193,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                   ),
                   const Divider(height: 24),
                   Row(
-                    mainAxisAlignment:
-                    MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
                         child: Text.rich(
@@ -206,19 +223,54 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                       Switch(
                         value: item.isAttendanceOpen,
                         onChanged: (value) async {
-                          if (value) {
-                            _showTimerDialog(
-                              context,
-                              viewModel,
-                              item.id,
-                            );
-                          } else {
-                            _showTopNotification(
-                              context,
-                              'Chức năng đóng điểm danh chưa hỗ trợ.',
-                              Colors.orange,
-                              Icons.info_outline,
-                            );
+                          print(
+                            "SWITCH CLICKED: classId=${item.id}, value=$value, isOpen=${item.isAttendanceOpen}, roomId=${item.roomId}",
+                          );
+
+                          try {
+                            if (value) {
+                              print(
+                                "OPEN DIALOG FOR CLASS: ${item.id}",
+                              );
+                              _showTimerDialog(
+                                context,
+                                viewModel,
+                                item.id,
+                              );
+                            } else {
+                              print(
+                                "TRY CLOSE ATTENDANCE FOR CLASS: ${item.id}",
+                              );
+                              await viewModel.toggleAttendance(
+                                item.id,
+                                0,
+                              );
+                              print(
+                                "CLOSE ATTENDANCE DONE FOR CLASS: ${item.id}",
+                              );
+
+                              if (context.mounted) {
+                                _showTopNotification(
+                                  context,
+                                  'Đóng điểm danh thành công!',
+                                  Colors.green,
+                                  Icons.check_circle,
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            print("SWITCH ERROR: $e");
+                            if (context.mounted) {
+                              _showTopNotification(
+                                context,
+                                e.toString().replaceAll(
+                                  "Exception: ",
+                                  "",
+                                ),
+                                Colors.red,
+                                Icons.error_outline,
+                              );
+                            }
                           }
                         },
                         activeColor: Colors.green,
@@ -271,16 +323,21 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                       ),
                       ElevatedButton.icon(
                         onPressed: () {
+                          print(
+                            "OPEN SET LOCATION SCREEN: classId=${item.id}, roomId=${item.roomId}",
+                          );
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) =>
-                                  SetLocationScreen(
-                                    classModel: item,
-                                  ),
+                              builder: (context) => SetLocationScreen(
+                                classModel: item,
+                              ),
                             ),
                           ).then((_) {
                             if (context.mounted) {
+                              print(
+                                "RETURNED FROM SET LOCATION -> REFRESH CLASSES",
+                              );
                               context
                                   .read<ClassManagementViewModel>()
                                   .fetchClasses();
@@ -339,16 +396,25 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              print("OPEN SESSION DIALOG CANCELLED: classId=$classId");
+              Navigator.pop(ctx);
+            },
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
               final minutes = int.tryParse(controller.text) ?? 30;
+              print(
+                "START SESSION BUTTON CLICKED: classId=$classId, minutes=$minutes",
+              );
+
               Navigator.pop(ctx);
 
               try {
                 await vm.toggleAttendance(classId, minutes);
+                print("TOGGLE ATTENDANCE DONE: classId=$classId");
+
                 if (context.mounted) {
                   _showTopNotification(
                     context,
@@ -358,6 +424,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                   );
                 }
               } catch (e) {
+                print("START SESSION ERROR: $e");
                 if (context.mounted) {
                   _showTopNotification(
                     context,

@@ -35,10 +35,11 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
 
     _selectedRoomId = widget.classModel.roomId?.toString();
 
-    if (widget.classModel.radius != null) {
+    if (widget.classModel.radius != null && widget.classModel.radius! > 0) {
       _currentRadius = widget.classModel.radius!;
-      _radiusController.text = _currentRadius.toString();
+      _radiusController.text = widget.classModel.radius!.toString();
     } else {
+      _currentRadius = 50.0;
       _radiusController.text = "50";
     }
 
@@ -46,15 +47,17 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
       final locVM = context.read<SetLocationViewModel>();
       await locVM.fetchLocations();
 
-      if (_selectedRoomId != null && mounted) {
+      if (!mounted) return;
+
+      if (_selectedRoomId != null && _selectedRoomId!.isNotEmpty) {
         try {
           final savedRoom = locVM.realLocations.firstWhere(
                 (r) => r.id.toString() == _selectedRoomId.toString(),
           );
           _selectedRoomName = savedRoom.name;
-          _moveCameraToRoom(savedRoom);
+          _moveCameraToRoom(savedRoom, keepCustomRadius: true);
         } catch (e) {
-          print("LOAD SAVED ROOM ERROR: $e");
+          debugPrint("LOAD SAVED ROOM ERROR: $e");
         }
       }
     });
@@ -66,28 +69,35 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
     super.dispose();
   }
 
-  void _moveCameraToRoom(RoomModel room) async {
+  void _moveCameraToRoom(RoomModel room, {bool keepCustomRadius = false}) async {
+    if (!mounted) return;
+
     setState(() {
       _currentMapPosition = LatLng(room.latitude, room.longitude);
-      _currentRadius = room.defaultRadius;
       _selectedRoomName = room.name;
       _selectedRoomId = room.id.toString();
-      _radiusController.text = _currentRadius.toString();
+
+      if (!keepCustomRadius) {
+        _currentRadius = room.defaultRadius > 0 ? room.defaultRadius : 50.0;
+        _radiusController.text = _currentRadius.toStringAsFixed(0);
+      }
     });
 
-    final GoogleMapController controller = await _mapController.future;
-    controller.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _currentMapPosition,
-          zoom: 18.5,
+    if (_mapController.isCompleted) {
+      final GoogleMapController controller = await _mapController.future;
+      await controller.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _currentMapPosition,
+            zoom: 18.5,
+          ),
         ),
-      ),
-    );
+      );
 
-    Future.delayed(const Duration(milliseconds: 500), () {
-      controller.showMarkerInfoWindow(const MarkerId('room_location'));
-    });
+      Future.delayed(const Duration(milliseconds: 500), () {
+        controller.showMarkerInfoWindow(const MarkerId('room_location'));
+      });
+    }
   }
 
   void _showTopNotification(
@@ -154,7 +164,6 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
             AspectRatio(
               aspectRatio: 1.0,
               child: Container(
@@ -205,7 +214,6 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
             const Text(
               '2. Select Room Configuration',
               style: TextStyle(
@@ -214,9 +222,13 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
             DropdownButtonFormField<String>(
-              value: _selectedRoomId,
+              value: (_selectedRoomId != null &&
+                  locVM.realLocations.any(
+                        (r) => r.id.toString() == _selectedRoomId,
+                  ))
+                  ? _selectedRoomId
+                  : null,
               isExpanded: true,
               items: locVM.realLocations.map((r) {
                 return DropdownMenuItem<String>(
@@ -229,10 +241,6 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               }).toList(),
               onChanged: (v) {
                 if (v == null) return;
-
-                setState(() {
-                  _selectedRoomId = v;
-                });
 
                 final selectedRoom = locVM.realLocations.firstWhere(
                       (r) => r.id.toString() == v.toString(),
@@ -250,9 +258,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                 fillColor: Colors.white,
               ),
             ),
-
             const SizedBox(height: 32),
-
             const Text(
               '3. Define Attendance Radius',
               style: TextStyle(
@@ -261,13 +267,15 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
             TextField(
               controller: _radiusController,
               keyboardType: TextInputType.number,
               onChanged: (val) {
                 setState(() {
-                  _currentRadius = double.tryParse(val) ?? 50.0;
+                  final parsed = double.tryParse(val);
+                  _currentRadius = (parsed != null && parsed > 0)
+                      ? parsed
+                      : 50.0;
                 });
               },
               decoration: InputDecoration(
@@ -282,17 +290,14 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                 fillColor: Colors.white,
               ),
             ),
-
             const SizedBox(height: 48),
-
             SizedBox(
               width: double.infinity,
               height: 54,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.save_outlined),
                 onPressed: () async {
-                  if (_selectedRoomId == null ||
-                      _selectedRoomId!.isEmpty) {
+                  if (_selectedRoomId == null || _selectedRoomId!.isEmpty) {
                     _showTopNotification(
                       context,
                       'Vui lòng chọn 1 phòng học!',
@@ -305,23 +310,43 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                   final radius =
                       double.tryParse(_radiusController.text) ?? 50.0;
 
-                  await classVM.updateClass(
-                    widget.classModel.copyWith(
-                      roomId: _selectedRoomId,
-                      radius: radius,
-                    ),
-                  );
+                  if (radius <= 0) {
+                    _showTopNotification(
+                      context,
+                      'Bán kính phải lớn hơn 0!',
+                      Colors.red,
+                      Icons.error_outline,
+                    );
+                    return;
+                  }
 
-                  if (!mounted) return;
+                  try {
+                    await classVM.updateClass(
+                      widget.classModel.copyWith(
+                        roomId: _selectedRoomId,
+                        radius: radius,
+                      ),
+                    );
 
-                  _showTopNotification(
-                    context,
-                    'Lưu thông tin phòng thành công!',
-                    Colors.green,
-                    Icons.check_circle,
-                  );
+                    if (!mounted) return;
 
-                  Navigator.pop(context, true);
+                    _showTopNotification(
+                      context,
+                      'Lưu thông tin phòng thành công!',
+                      Colors.green,
+                      Icons.check_circle,
+                    );
+
+                    Navigator.pop(context, true);
+                  } catch (e) {
+                    if (!mounted) return;
+                    _showTopNotification(
+                      context,
+                      'Lưu thất bại: ${e.toString().replaceAll("Exception: ", "")}',
+                      Colors.red,
+                      Icons.error_outline,
+                    );
+                  }
                 },
                 label: const Text(
                   "SAVE CONFIGURATION",

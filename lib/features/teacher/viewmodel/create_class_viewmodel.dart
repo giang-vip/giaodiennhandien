@@ -57,13 +57,13 @@ class CreateClassViewModel extends ChangeNotifier {
       final token = prefs.getString('access_token');
 
       if (token == null || token.isEmpty) {
-        print("❌ NO TOKEN");
+        print(" NO TOKEN");
         return false;
       }
 
       final isValid = await _isTokenValid(token);
       if (!isValid) {
-        print("❌ TOKEN INVALID");
+        print(" TOKEN INVALID");
         return false;
       }
 
@@ -71,14 +71,14 @@ class CreateClassViewModel extends ChangeNotifier {
       final sub = jwtData['sub'];
 
       if (sub == null) {
-        print("❌ TOKEN KHÔNG CÓ SUB");
+        print(" TOKEN KHÔNG CÓ SUB");
         return false;
       }
 
       final int myTeacherId = int.tryParse(sub.toString()) ?? 0;
 
       if (myTeacherId == 0) {
-        print("❌ TEACHER ID INVALID");
+        print(" TEACHER ID INVALID");
         return false;
       }
 
@@ -101,7 +101,7 @@ class CreateClassViewModel extends ChangeNotifier {
               .toIso8601String()
               .split('T')[0],
 
-          // 🔥 FIX QUAN TRỌNG NHẤT
+          //  FIX QUAN TRỌNG NHẤT
           "locationIds": locationIds
         }),
       );
@@ -112,10 +112,10 @@ class CreateClassViewModel extends ChangeNotifier {
 
       if (response.statusCode == 200 ||
           response.statusCode == 201) {
-        print("✅ CREATE SUCCESS");
+        print(" CREATE SUCCESS");
         return true;
       } else {
-        print("❌ CREATE FAIL");
+        print(" CREATE FAIL");
         return false;
       }
     } catch (e) {
