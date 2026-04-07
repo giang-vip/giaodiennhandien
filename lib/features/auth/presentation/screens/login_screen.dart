@@ -16,6 +16,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passController = TextEditingController();
 
   @override
+  void dispose() {
+    _userController.dispose();
+    _passController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final authViewModel = context.watch<AuthViewModel>();
 
@@ -33,7 +40,11 @@ class _LoginScreenState extends State<LoginScreen> {
               const Text(
                 "Attendance System",
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.primary),
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primary,
+                ),
               ),
               const SizedBox(height: 48),
               TextField(
@@ -64,7 +75,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: TextButton(
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please contact your administrator to reset password.')),
+                      const SnackBar(
+                        content: Text(
+                          'Please contact your administrator to reset password.',
+                        ),
+                      ),
                     );
                   },
                   child: const Text("Forgot Password?"),
@@ -77,18 +92,19 @@ class _LoginScreenState extends State<LoginScreen> {
                     : () async {
                   try {
                     final role = await authViewModel.login(
-                      _userController.text,
-                      _passController.text,
+                      _userController.text.trim(),
+                      _passController.text.trim(),
                     );
 
                     if (mounted && role != null) {
                       Navigator.pushReplacementNamed(
                         context,
-                        role == 'teacher' ? AppRoutes.teacherHome : AppRoutes.studentHome,
+                        role == 'teacher'
+                            ? AppRoutes.teacherHome
+                            : AppRoutes.studentHome,
                       );
                     }
                   } catch (e) {
-                    // Hiển thị lỗi từ backend (ví dụ: Sai mật khẩu)
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -103,15 +119,23 @@ class _LoginScreenState extends State<LoginScreen> {
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: authViewModel.isLoading
                     ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Text("LOGIN", style: TextStyle(fontWeight: FontWeight.bold)),
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                )
+                    : const Text(
+                  "LOGIN",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),

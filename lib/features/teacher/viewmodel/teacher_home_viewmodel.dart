@@ -16,71 +16,180 @@ class TeacherHomeViewModel extends ChangeNotifier {
   Map<String, dynamic> _decodeJwt(String token) {
     try {
       final payload = token.split('.')[1];
-      return jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(payload))));
-    } catch(e) { return {}; }
+      return jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(payload))),
+      );
+    } catch (e) {
+      return {};
+    }
+  }
+
+  Future<bool> _isTokenValid(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jwt = _decodeJwt(token);
+
+    print("JWT DECODED: $jwt");
+
+    if (jwt['type'] != 'access') {
+      print("❌ TOKEN TYPE INVALID");
+      await prefs.clear();
+      return false;
+    }
+
+    final exp = jwt['exp'];
+    if (exp != null) {
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (now >= exp) {
+        print("❌ TOKEN EXPIRED");
+        await prefs.clear();
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  List _safeList(dynamic data) {
+    try {
+      if (data is List) return data;
+
+      if (data is Map) {
+        if (data['data'] != null) {
+          if (data['data'] is Map && data['data']['content'] != null) {
+            return data['data']['content'];
+          }
+          if (data['data'] is List) {
+            return data['data'];
+          }
+        }
+
+        if (data['content'] != null) {
+          return data['content'];
+        }
+      }
+    } catch (_) {}
+
+    return [];
   }
 
   Future<void> fetchDashboardData() async {
     _isLoading = true;
     notifyListeners();
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token');
-      final jwtData = _decodeJwt(token!);
+
+      print("TOKEN READ IN HOME: $token");
+
+      if (token == null || token.isEmpty) {
+        print("❌ NO TOKEN");
+        totalClasses = 0;
+        openClasses = 0;
+        return;
+      }
+
+      final isValid = await _isTokenValid(token);
+      if (!isValid) {
+        print("❌ TOKEN INVALID OR EXPIRED");
+        totalClasses = 0;
+        openClasses = 0;
+        return;
+      }
+
+      final jwtData = _decodeJwt(token);
       final String myTeacherId = jwtData['sub']?.toString() ?? '';
 
+      print("✅ TOKEN OK");
+      print("TEACHER ID: $myTeacherId");
+
+      final headers = {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      };
+
       final classResponse = await http.get(
-          Uri.parse('$_baseUrl/classrooms?page=0&size=50'),
-          headers: {'Authorization': 'Bearer $token'});
+        Uri.parse('$_baseUrl/classrooms?page=0&size=50'),
+        headers: headers,
+      );
+
       final sessionResponse = await http.get(
-          Uri.parse('$_baseUrl/sessions?page=0&size=50'),
-          headers: {'Authorization': 'Bearer $token'});
+        Uri.parse('$_baseUrl/sessions?page=0&size=50'),
+        headers: headers,
+      );
+
+      print("CLASS STATUS: ${classResponse.statusCode}");
+      print("SESSION STATUS: ${sessionResponse.statusCode}");
+
+      // Chỉ clear token nếu API classrooms cũng 401
+      if (classResponse.statusCode == 401) {
+        print("❌ CLASS API 401 -> CLEAR TOKEN");
+        await prefs.clear();
+        totalClasses = 0;
+        openClasses = 0;
+        return;
+      }
 
       if (classResponse.statusCode == 200) {
         final classData = jsonDecode(utf8.decode(classResponse.bodyBytes));
-        final List<dynamic> classContent = classData is List
-            ? classData
-            : (classData['content'] ?? classData['data'] ?? []);
+        final List classContent = _safeList(classData);
 
-        final myClasses = classContent.where((item) =>
-        item['teacherId']?.toString() == myTeacherId).toList();
+        print("CLASS CONTENT LENGTH: ${classContent.length}");
+
+        final myClasses = classContent.where((item) {
+          return item['teacherId']?.toString() == myTeacherId;
+        }).toList();
+
         totalClasses = myClasses.length;
 
-        List<String> myClassIds = myClasses.map((c) =>
-            (c['id'] ?? c['classId']).toString()).toList();
+        final List<String> myClassIds = myClasses
+            .map((c) => (c['id'] ?? c['classId']).toString())
+            .toList();
 
-        // 🔥 ĐÃ SỬA: Dùng Set để chứa ID Lớp. Nếu 1 lớp có 10 phiên mở, Set cũng chỉ tính là 1 Lớp!
-        Set<String> uniqueOpenClasses = {};
+        final Set<String> uniqueOpenClasses = {};
 
+        // Nếu sessions 200 thì tính openClasses
         if (sessionResponse.statusCode == 200) {
-          final sessionData = jsonDecode(
-              utf8.decode(sessionResponse.bodyBytes));
-          final List<dynamic> sessionContent = sessionData is List
-              ? sessionData
-              : (sessionData['content'] ?? sessionData['data'] ?? []);
+          final sessionData = jsonDecode(utf8.decode(sessionResponse.bodyBytes));
+          final List sessionContent = _safeList(sessionData);
+
+          print("SESSION CONTENT LENGTH: ${sessionContent.length}");
 
           for (var session in sessionContent) {
             final status = session['status']?.toString().toUpperCase();
+
             if (status == 'OPEN' || status == '1') {
-              final sClassId = session['classroomId']?.toString() ??
-                  session['classRoomId']?.toString() ??
-                  session['classId']?.toString() ??
-                  session['classRoom']?['id']?.toString() ??
-                  session['classRoom']?['classId']?.toString();
+              final sClassId =
+                  session['classroomId']?.toString() ??
+                      session['classRoomId']?.toString() ??
+                      session['classId']?.toString() ??
+                      session['classRoom']?['id']?.toString() ??
+                      session['classRoom']?['classId']?.toString();
 
               if (sClassId != null && myClassIds.contains(sClassId)) {
-                // Nhét ID lớp vào Set. (Đặc tính của Set là tự động loại bỏ trùng lặp)
                 uniqueOpenClasses.add(sClassId);
               }
             }
           }
+
+          openClasses = uniqueOpenClasses.length;
+        } else {
+          // sessions lỗi thì không clear token, chỉ cho openClasses = 0
+          print("⚠ SESSION API ERROR: ${sessionResponse.statusCode}");
+          openClasses = 0;
         }
 
-        // Gán số lượng lớp đang mở bằng đúng số phần tử trong Set
-        openClasses = uniqueOpenClasses.length;
+        print("TOTAL CLASSES: $totalClasses");
+        print("OPEN CLASSES: $openClasses");
+      } else {
+        print("❌ CLASS API ERROR: ${classResponse.statusCode}");
+        totalClasses = 0;
+        openClasses = 0;
       }
     } catch (e) {
       print("LỖI DATA DASHBOARD: $e");
+      totalClasses = 0;
+      openClasses = 0;
     } finally {
       _isLoading = false;
       notifyListeners();

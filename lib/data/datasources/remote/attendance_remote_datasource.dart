@@ -58,7 +58,7 @@ class AttendanceRemoteDataSource {
         throw Exception("Server lỗi: ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ ERROR: $e");
+      print("ERROR: $e");
       rethrow;
     }
   }

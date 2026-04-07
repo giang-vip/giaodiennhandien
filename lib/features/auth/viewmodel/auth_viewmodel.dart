@@ -29,14 +29,13 @@ class AuthViewModel extends ChangeNotifier {
       print("STATUS CODE: ${response.statusCode}");
       print("RESPONSE BODY: ${response.body}");
 
+      final Map<String, dynamic> responseData = jsonDecode(response.body);
+
       if (response.statusCode != 200) {
-        final error = jsonDecode(response.body);
-        throw Exception(error['message'] ?? 'Login thất bại');
+        throw Exception(responseData['message'] ?? 'Login thất bại');
       }
 
-      final Map<String, dynamic> responseData = jsonDecode(response.body);
       final data = responseData['data'];
-
       if (data == null) {
         throw Exception("Response không có data");
       }
@@ -53,25 +52,30 @@ class AuthViewModel extends ChangeNotifier {
       }
 
       final prefs = await SharedPreferences.getInstance();
-      // final prefs = await SharedPreferences.getInstance();
-      await prefs.clear(); // 🔥 xoá sạch token
 
-      // ✅ LƯU RÕ RÀNG (QUAN TRỌNG NHẤT)
       await prefs.setString('access_token', accessToken);
 
       if (refreshToken != null && refreshToken.isNotEmpty) {
         await prefs.setString('refresh_token', refreshToken);
       }
 
+      final savedToken = prefs.getString('access_token');
+      print("SAVED TOKEN: $savedToken");
+
+      String role = 'student';
+      if (rolesData is List && rolesData.isNotEmpty) {
+        final firstRole =
+            rolesData[0]['authority']?.toString().toUpperCase() ?? '';
+
+        if (firstRole.contains('ADMIN') || firstRole.contains('LEADER')) {
+          role = 'teacher';
+        }
+      }
+
       _isLoading = false;
       notifyListeners();
 
-      String role = rolesData.toString().toUpperCase();
-
-      if (role.contains('ADMIN') || role.contains('LEADER')) {
-        return 'teacher';
-      }
-      return 'student';
+      return role;
     } catch (e) {
       _isLoading = false;
       notifyListeners();
@@ -81,13 +85,11 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // ✅ LẤY ACCESS TOKEN (SỬA KEY)
   Future<String?> getAccessToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('access_token');
   }
 
-  // (tuỳ dùng)
   Future<String?> getRefreshToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('refresh_token');

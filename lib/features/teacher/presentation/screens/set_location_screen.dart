@@ -9,7 +9,11 @@ import '../../viewmodel/class_management_viewmodel.dart';
 
 class SetLocationScreen extends StatefulWidget {
   final AppClassModel classModel;
-  const SetLocationScreen({super.key, required this.classModel});
+
+  const SetLocationScreen({
+    super.key,
+    required this.classModel,
+  });
 
   @override
   State<SetLocationScreen> createState() => _SetLocationScreenState();
@@ -20,7 +24,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
 
   String? _selectedRoomId;
   String? _selectedRoomName;
-  final _radiusController = TextEditingController();
+  final TextEditingController _radiusController = TextEditingController();
 
   LatLng _currentMapPosition = const LatLng(21.028511, 105.804817);
   double _currentRadius = 50.0;
@@ -28,7 +32,9 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedRoomId = widget.classModel.roomId;
+
+    _selectedRoomId = widget.classModel.roomId?.toString();
+
     if (widget.classModel.radius != null) {
       _currentRadius = widget.classModel.radius!;
       _radiusController.text = _currentRadius.toString();
@@ -42,12 +48,22 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
 
       if (_selectedRoomId != null && mounted) {
         try {
-          final savedRoom = locVM.realLocations.firstWhere((r) => r.id == _selectedRoomId);
+          final savedRoom = locVM.realLocations.firstWhere(
+                (r) => r.id.toString() == _selectedRoomId.toString(),
+          );
           _selectedRoomName = savedRoom.name;
           _moveCameraToRoom(savedRoom);
-        } catch (e) {}
+        } catch (e) {
+          print("LOAD SAVED ROOM ERROR: $e");
+        }
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _radiusController.dispose();
+    super.dispose();
   }
 
   void _moveCameraToRoom(RoomModel room) async {
@@ -55,36 +71,59 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
       _currentMapPosition = LatLng(room.latitude, room.longitude);
       _currentRadius = room.defaultRadius;
       _selectedRoomName = room.name;
+      _selectedRoomId = room.id.toString();
       _radiusController.text = _currentRadius.toString();
     });
 
     final GoogleMapController controller = await _mapController.future;
-    controller.animateCamera(CameraUpdate.newCameraPosition(
-      CameraPosition(target: _currentMapPosition, zoom: 18.5),
-    ));
+    controller.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _currentMapPosition,
+          zoom: 18.5,
+        ),
+      ),
+    );
 
-    // =================================================================
-    // ĐÃ SỬA LỖI: Tự động BẬT bong bóng địa chỉ lên thay vì bắt người dùng tự ấn
-    // =================================================================
     Future.delayed(const Duration(milliseconds: 500), () {
       controller.showMarkerInfoWindow(const MarkerId('room_location'));
     });
   }
 
-  void _showTopNotification(BuildContext context, String message, Color bgColor, IconData icon) {
+  void _showTopNotification(
+      BuildContext context,
+      String message,
+      Color bgColor,
+      IconData icon,
+      ) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
             Icon(icon, color: Colors.white),
             const SizedBox(width: 12),
-            Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15))),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+            ),
           ],
         ),
         backgroundColor: bgColor,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height - 160, left: 16, right: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height - 160,
+          left: 16,
+          right: 16,
+        ),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -96,7 +135,10 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
     final classVM = context.read<ClassManagementViewModel>();
 
     return Scaffold(
-      appBar: AppBar(title: Text("Set Location: ${widget.classModel.className}"), elevation: 0),
+      appBar: AppBar(
+        title: Text("Set Location: ${widget.classModel.className}"),
+        elevation: 0,
+      ),
       body: locVM.isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -104,7 +146,13 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('1. Classroom Mapping', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const Text(
+              '1. Classroom Mapping',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
             const SizedBox(height: 12),
 
             AspectRatio(
@@ -113,23 +161,32 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                 width: double.infinity,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.blueAccent, width: 2),
+                  border: Border.all(
+                    color: Colors.blueAccent,
+                    width: 2,
+                  ),
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(18),
                   child: GoogleMap(
                     mapType: MapType.normal,
-                    initialCameraPosition: CameraPosition(target: _currentMapPosition, zoom: 15),
+                    initialCameraPosition: CameraPosition(
+                      target: _currentMapPosition,
+                      zoom: 15,
+                    ),
                     onMapCreated: (GoogleMapController controller) {
-                      _mapController.complete(controller);
+                      if (!_mapController.isCompleted) {
+                        _mapController.complete(controller);
+                      }
                     },
                     markers: {
                       Marker(
                         markerId: const MarkerId('room_location'),
                         position: _currentMapPosition,
                         infoWindow: InfoWindow(
-                            title: _selectedRoomName ?? 'Vị trí phòng học',
-                            snippet: 'Bán kính hợp lệ: ${_currentRadius.toInt()}m'
+                          title: _selectedRoomName ?? 'Vị trí phòng học',
+                          snippet:
+                          'Bán kính hợp lệ: ${_currentRadius.toInt()}m',
                         ),
                       ),
                     },
@@ -149,32 +206,62 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
             ),
             const SizedBox(height: 24),
 
-            const Text('2. Select Room Configuration', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              '2. Select Room Configuration',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
             const SizedBox(height: 12),
+
             DropdownButtonFormField<String>(
               value: _selectedRoomId,
               isExpanded: true,
-              items: locVM.realLocations.map((r) => DropdownMenuItem(
-                value: r.id,
-                child: Text(r.name, overflow: TextOverflow.ellipsis),
-              )).toList(),
+              items: locVM.realLocations.map((r) {
+                return DropdownMenuItem<String>(
+                  value: r.id.toString(),
+                  child: Text(
+                    r.name,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
               onChanged: (v) {
-                setState(() => _selectedRoomId = v);
-                final selectedRoom = locVM.realLocations.firstWhere((r) => r.id == v);
+                if (v == null) return;
+
+                setState(() {
+                  _selectedRoomId = v;
+                });
+
+                final selectedRoom = locVM.realLocations.firstWhere(
+                      (r) => r.id.toString() == v.toString(),
+                );
+
                 _moveCameraToRoom(selectedRoom);
               },
               decoration: InputDecoration(
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 prefixIcon: const Icon(Icons.meeting_room_outlined),
                 hintText: 'Select a classroom',
                 filled: true,
                 fillColor: Colors.white,
               ),
             ),
+
             const SizedBox(height: 32),
 
-            const Text('3. Define Attendance Radius', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              '3. Define Attendance Radius',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
             const SizedBox(height: 12),
+
             TextField(
               controller: _radiusController,
               keyboardType: TextInputType.number,
@@ -184,7 +271,9 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                 });
               },
               decoration: InputDecoration(
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 hintText: 'e.g., 50',
                 labelText: 'Allowed distance (Radius)',
                 prefixIcon: const Icon(Icons.radar_outlined),
@@ -193,6 +282,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                 fillColor: Colors.white,
               ),
             ),
+
             const SizedBox(height: 48),
 
             SizedBox(
@@ -200,22 +290,53 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               height: 54,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.save_outlined),
-                onPressed: () {
-                  if (_selectedRoomId != null) {
-                    classVM.updateClass(widget.classModel.copyWith(
-                      roomId: _selectedRoomId,
-                      radius: double.tryParse(_radiusController.text),
-                    ));
-                    _showTopNotification(context, 'Lưu thông tin phòng thành công!', Colors.green, Icons.check_circle);
-                    Navigator.pop(context);
-                  } else {
-                    _showTopNotification(context, 'Vui lòng chọn 1 phòng học!', Colors.red, Icons.error_outline);
+                onPressed: () async {
+                  if (_selectedRoomId == null ||
+                      _selectedRoomId!.isEmpty) {
+                    _showTopNotification(
+                      context,
+                      'Vui lòng chọn 1 phòng học!',
+                      Colors.red,
+                      Icons.error_outline,
+                    );
+                    return;
                   }
+
+                  final radius =
+                      double.tryParse(_radiusController.text) ?? 50.0;
+
+                  await classVM.updateClass(
+                    widget.classModel.copyWith(
+                      roomId: _selectedRoomId,
+                      radius: radius,
+                    ),
+                  );
+
+                  if (!mounted) return;
+
+                  _showTopNotification(
+                    context,
+                    'Lưu thông tin phòng thành công!',
+                    Colors.green,
+                    Icons.check_circle,
+                  );
+
+                  Navigator.pop(context, true);
                 },
-                label: const Text("SAVE CONFIGURATION", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                label: const Text(
+                  "SAVE CONFIGURATION",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
-            )
+            ),
           ],
         ),
       ),

@@ -10,38 +10,116 @@ class CreateClassViewModel extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
+  // ================= JWT =================
   Map<String, dynamic> _decodeJwt(String token) {
     try {
       final payload = token.split('.')[1];
-      return jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(payload))));
-    } catch(e) { return {}; }
+      return jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(payload))),
+      );
+    } catch (e) {
+      return {};
+    }
   }
 
-  Future<bool> createClassAPI({required String title, required String description, required int teacherId, required List<int> locationIds}) async {
+  Future<bool> _isTokenValid(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jwt = _decodeJwt(token);
+
+    if (jwt['type'] != 'access') {
+      await prefs.clear();
+      return false;
+    }
+
+    final exp = jwt['exp'];
+    if (exp != null) {
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (now >= exp) {
+        await prefs.clear();
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // ================= CREATE =================
+  Future<bool> createClassAPI({
+    required String title,
+    required String description,
+    required List<int> locationIds,
+  }) async {
     try {
       _isLoading = true;
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token');
-      final jwtData = _decodeJwt(token!);
-      final int myTeacherId = int.parse(jwtData['sub']!.toString());
 
+      if (token == null || token.isEmpty) {
+        print("❌ NO TOKEN");
+        return false;
+      }
+
+      final isValid = await _isTokenValid(token);
+      if (!isValid) {
+        print("❌ TOKEN INVALID");
+        return false;
+      }
+
+      final jwtData = _decodeJwt(token);
+      final sub = jwtData['sub'];
+
+      if (sub == null) {
+        print("❌ TOKEN KHÔNG CÓ SUB");
+        return false;
+      }
+
+      final int myTeacherId = int.tryParse(sub.toString()) ?? 0;
+
+      if (myTeacherId == 0) {
+        print("❌ TEACHER ID INVALID");
+        return false;
+      }
+
+      // ================= CALL API =================
       final response = await http.post(
         Uri.parse('$_baseUrl/classrooms'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token'
+        },
         body: jsonEncode({
           "teacherId": myTeacherId,
           "title": title,
           "description": description,
-          "startDate": DateTime.now().toIso8601String().split('T')[0],
-          "endDate": DateTime.now().add(const Duration(days: 90)).toIso8601String().split('T')[0],
+          "startDate": DateTime.now()
+              .toIso8601String()
+              .split('T')[0],
+          "endDate": DateTime.now()
+              .add(const Duration(days: 90))
+              .toIso8601String()
+              .split('T')[0],
+
+          // 🔥 FIX QUAN TRỌNG NHẤT
           "locationIds": locationIds
         }),
       );
 
-      return (response.statusCode == 200 || response.statusCode == 201);
+      // ================= DEBUG =================
+      print("CREATE STATUS: ${response.statusCode}");
+      print("CREATE BODY: ${response.body}");
+
+      if (response.statusCode == 200 ||
+          response.statusCode == 201) {
+        print("✅ CREATE SUCCESS");
+        return true;
+      } else {
+        print("❌ CREATE FAIL");
+        return false;
+      }
     } catch (e) {
+      print("CREATE CLASS ERROR: $e");
       return false;
     } finally {
       _isLoading = false;

@@ -39,7 +39,7 @@ class StudentStatsViewModel extends ChangeNotifier {
       // ⚠️ ĐƯỜNG LINK ĐANG GỌI TẠM THỜI (BẠN CHÚ Ý THEO DÕI LOG XEM CÓ BỊ 404 KHÔNG NHÉ)
       final url = Uri.parse('$_baseUrl/attendance/class/$classId');
 
-      print("\n================= 🚀 BẮT ĐẦU GỌI API THỐNG KÊ LỚP =================");
+      print("\n================= BẮT ĐẦU GỌI API THỐNG KÊ LỚP =================");
       print("👉 GỌI LINK: $url");
 
       final response = await http.get(url, headers: {

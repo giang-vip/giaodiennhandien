@@ -17,7 +17,6 @@ class ClassManagementViewModel extends ChangeNotifier {
 
   final Map<String, Map<String, dynamic>> _activeSessionData = {};
 
-  // ================= JWT DECODE =================
   Map<String, dynamic> _decodeJwt(String token) {
     try {
       final payload = token.split('.')[1];
@@ -29,7 +28,50 @@ class ClassManagementViewModel extends ChangeNotifier {
     }
   }
 
-  // ================= FETCH =================
+  Future<bool> _isTokenValid(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jwtData = _decodeJwt(token);
+
+    if (jwtData['type'] != 'access') {
+      await prefs.clear();
+      return false;
+    }
+
+    final exp = jwtData['exp'];
+    if (exp != null) {
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (now >= exp) {
+        await prefs.clear();
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  List _safeList(dynamic data) {
+    try {
+      if (data is List) return data;
+
+      if (data is Map) {
+        if (data['data'] != null) {
+          if (data['data'] is Map && data['data']['content'] != null) {
+            return data['data']['content'];
+          }
+          if (data['data'] is List) {
+            return data['data'];
+          }
+        }
+
+        if (data['content'] != null) {
+          return data['content'];
+        }
+      }
+    } catch (_) {}
+
+    return [];
+  }
+
   Future<void> fetchClasses() async {
     _isLoading = true;
     notifyListeners();
@@ -38,124 +80,167 @@ class ClassManagementViewModel extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token');
 
-      // ❌ NULL TOKEN
       if (token == null || token.isEmpty) {
-        throw Exception("⚠️ Chưa đăng nhập");
+        print("❌ NO TOKEN IN CLASS MANAGEMENT");
+        _realClasses = [];
+        return;
       }
 
-      // 🔥 CHECK TOKEN TYPE (QUAN TRỌNG NHẤT)
+      final isValid = await _isTokenValid(token);
+      if (!isValid) {
+        print("❌ TOKEN INVALID IN CLASS MANAGEMENT");
+        _realClasses = [];
+        return;
+      }
+
       final jwtData = _decodeJwt(token);
-      if (jwtData['type'] != 'access') {
-        await prefs.clear();
-        throw Exception("❌ Sai token → login lại");
-      }
+      final myTeacherId = jwtData['sub']?.toString() ?? '';
 
-      print("ACCESS TOKEN OK");
+      print("✅ ACCESS TOKEN OK");
+      print("MY TEACHER ID: $myTeacherId");
 
       final headers = {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token'
+        'Authorization': 'Bearer $token',
       };
 
-      // ================= SESSIONS =================
+      _activeSessionData.clear();
+
       final sessionRes = await http.get(
         Uri.parse('$_baseUrl/sessions?page=0&size=50'),
         headers: headers,
       );
 
-      if (sessionRes.statusCode == 401) {
-        await prefs.clear();
-        throw Exception("Token hết hạn → đăng nhập lại");
-      }
+      print("SESSION STATUS: ${sessionRes.statusCode}");
+      print("SESSION BODY: ${sessionRes.body}");
 
-      Map<String, dynamic> openSessions = {};
+      final Map<String, dynamic> openSessions = {};
 
       if (sessionRes.statusCode == 200) {
-        final data = jsonDecode(sessionRes.body);
+        final data = jsonDecode(utf8.decode(sessionRes.bodyBytes));
+        final List list = _safeList(data);
 
-        // 🔥 FIX JSON CHUẨN BACKEND
-        final List list = data is List
-            ? data
-            : (data['data']?['content'] ?? data['data'] ?? []);
+        print("SESSION LIST LENGTH: ${list.length}");
 
         for (var s in list) {
-          if (s['status']?.toString().toUpperCase() == 'OPEN') {
-            final classId = s['classId']?.toString();
+          final status = s['status']?.toString().toUpperCase();
 
-            if (classId != null) {
+          if (status == 'OPEN' ||
+              status == '1' ||
+              status == 'ACTIVE' ||
+              status == 'ONGOING') {
+            final classId =
+                s['classroomId']?.toString() ??
+                    s['classRoomId']?.toString() ??
+                    s['classId']?.toString() ??
+                    s['classroom']?['id']?.toString() ??
+                    s['classroom']?['classId']?.toString() ??
+                    s['classRoom']?['id']?.toString() ??
+                    s['classRoom']?['classId']?.toString();
+
+            if (classId != null && classId.isNotEmpty) {
               openSessions[classId] = s;
 
               _activeSessionData[classId] = {
                 "sessionId": s['id'],
                 "classId": int.tryParse(classId) ?? 0,
-                "status": "OPEN",
-                "locationId": s['locationId'] ?? 0,
+                "status": status,
+                "locationId":
+                s['locationId'] ??
+                    s['location']?['id'] ??
+                    s['classRoom']?['locationId'] ??
+                    s['classroom']?['locationId'] ??
+                    0,
                 "startTime": s['startTime'],
-                "endTime": s['endTime']
+                "endTime": s['endTime'],
               };
             }
           }
         }
       }
 
-      // ================= CLASS =================
       final classRes = await http.get(
         Uri.parse('$_baseUrl/classrooms?page=0&size=50'),
         headers: headers,
       );
 
+      print("CLASS STATUS: ${classRes.statusCode}");
+      print("CLASS BODY: ${classRes.body}");
+
       if (classRes.statusCode == 401) {
         await prefs.clear();
-        throw Exception("Token hết hạn → đăng nhập lại");
+        _realClasses = [];
+        return;
       }
 
       if (classRes.statusCode == 200) {
-        final data = jsonDecode(classRes.body);
+        final data = jsonDecode(utf8.decode(classRes.bodyBytes));
+        final List list = _safeList(data);
 
-        // 🔥 FIX JSON CHUẨN BACKEND
-        final List list = data is List
-            ? data
-            : (data['data']?['content'] ?? data['data'] ?? []);
+        print("CLASS LIST LENGTH: ${list.length}");
 
-        _realClasses = list.map((item) {
-          final classId = item['id']?.toString() ?? '0';
+        final mappedClasses = list.map((item) {
+          final classId = (item['id'] ?? item['classId']).toString();
 
-          final savedRoom =
-          prefs.getString('class_${classId}_room');
-          final savedRadius =
-          prefs.getDouble('class_${classId}_radius');
+          final teacherId =
+              item['teacherId']?.toString() ??
+                  item['teacher']?['id']?.toString() ??
+                  '';
+
+          final isOpen = openSessions.containsKey(classId);
+
+          final locationIds = item['locationIds'];
+
+          // Ưu tiên location đã set local, nếu chưa có thì mới lấy từ backend
+          final localRoomId = prefs.getString('class_${classId}_room');
+
+          String? roomId;
+          if (localRoomId != null && localRoomId.isNotEmpty) {
+            roomId = localRoomId;
+          } else if (locationIds is List && locationIds.isNotEmpty) {
+            roomId = locationIds.first.toString();
+          }
+
+          final localRadius = prefs.getDouble('class_${classId}_radius');
 
           return AppClassModel(
             id: classId,
-            teacherId: item['teacherId']?.toString() ?? '',
-            className: item['title'] ?? '',
+            teacherId: teacherId,
+            className: item['title'] ?? item['name'] ?? '',
             description: item['description'] ?? '',
-            teacherName: '',
-            startTime: item['startDate'] ?? '',
-            endTime: item['endDate'] ?? '',
-            isAttendanceOpen:
-            openSessions.containsKey(classId),
-            roomId: savedRoom,
-            radius: savedRadius,
+            teacherName: item['teacherName'] ?? '',
+            startTime: item['startDate']?.toString() ?? '',
+            endTime: item['endDate']?.toString() ?? '',
+            isAttendanceOpen: isOpen,
+            roomId: roomId,
+            radius: localRadius,
           );
         }).toList();
+
+        _realClasses = mappedClasses.where((c) {
+          return c.teacherId.toString() == myTeacherId;
+        }).toList();
+
+        print("FINAL REAL CLASSES LENGTH: ${_realClasses.length}");
+      } else {
+        print("❌ CLASS API ERROR: ${classRes.statusCode}");
+        _realClasses = [];
       }
     } catch (e) {
       print("FETCH ERROR: $e");
-      rethrow;
+      _realClasses = [];
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // ================= DELETE =================
   Future<void> deleteClass(String classId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token');
 
-      if (token == null) return;
+      if (token == null || token.isEmpty) return;
 
       final res = await http.delete(
         Uri.parse('$_baseUrl/classrooms/$classId'),
@@ -166,21 +251,20 @@ class ClassManagementViewModel extends ChangeNotifier {
 
       if (res.statusCode == 200 || res.statusCode == 204) {
         _realClasses.removeWhere((c) => c.id == classId);
+
+        await prefs.remove('class_${classId}_room');
+        await prefs.remove('class_${classId}_radius');
+
         notifyListeners();
-      } else {
-        throw Exception("Xóa thất bại");
       }
     } catch (e) {
       print("DELETE ERROR: $e");
-      rethrow;
     }
   }
 
-  // ================= UPDATE =================
   Future<void> updateClass(AppClassModel updated) async {
     try {
-      int index =
-      _realClasses.indexWhere((c) => c.id == updated.id);
+      final index = _realClasses.indexWhere((c) => c.id == updated.id);
 
       if (index != -1) {
         _realClasses[index] = updated;
@@ -189,53 +273,71 @@ class ClassManagementViewModel extends ChangeNotifier {
 
       final prefs = await SharedPreferences.getInstance();
 
-      if (updated.roomId != null &&
-          updated.roomId!.isNotEmpty) {
-        await prefs.setString(
-            'class_${updated.id}_room', updated.roomId!);
+      if (updated.roomId != null && updated.roomId!.isNotEmpty) {
+        await prefs.setString('class_${updated.id}_room', updated.roomId!);
       }
 
       if (updated.radius != null && updated.radius! > 0) {
-        await prefs.setDouble(
-            'class_${updated.id}_radius', updated.radius!);
+        await prefs.setDouble('class_${updated.id}_radius', updated.radius!);
       }
     } catch (e) {
       print("UPDATE ERROR: $e");
     }
   }
 
-  // ================= TOGGLE =================
-  Future<void> toggleAttendance(
-      String classId, int minutes) async {
-    int index =
-    _realClasses.indexWhere((c) => c.id == classId);
+  Future<void> toggleAttendance(String classId, int minutes) async {
+    final index = _realClasses.indexWhere((c) => c.id == classId);
     if (index == -1) return;
 
     final current = _realClasses[index];
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    if (token == null || token.isEmpty) {
+      throw Exception("Không tìm thấy token");
+    }
+
+    final headers = {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    };
 
     if (!current.isAttendanceOpen) {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token');
+      final now = DateTime.now();
+      final end = now.add(Duration(minutes: minutes));
 
-      if (token == null) return;
+      final locationId = int.tryParse(current.roomId ?? '');
+      if (locationId == null) {
+        throw Exception("Lớp chưa có locationId. Hãy Set Location trước.");
+      }
+
+      final body = {
+        "title": "Attendance - ${current.className}",
+        "startTime": now.toIso8601String(),
+        "endTime": end.toIso8601String(),
+        "status": "OPEN",
+        "classId": int.parse(classId),
+        "locationId": locationId,
+      };
+
+      print("OPEN SESSION BODY: ${jsonEncode(body)}");
 
       final res = await http.post(
         Uri.parse('$_baseUrl/sessions'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json'
-        },
-        body: jsonEncode({
-          "classId": int.parse(classId),
-          "status": "OPEN"
-        }),
+        headers: headers,
+        body: jsonEncode(body),
       );
 
+      print("TOGGLE SESSION STATUS: ${res.statusCode}");
+      print("TOGGLE SESSION BODY: ${res.body}");
+
       if (res.statusCode == 200 || res.statusCode == 201) {
-        _realClasses[index] =
-            current.copyWith(isAttendanceOpen: true);
-        notifyListeners();
+        await fetchClasses();
+      } else {
+        throw Exception("Mở điểm danh thất bại");
       }
+    } else {
+      throw Exception("Chức năng đóng điểm danh chưa được backend hỗ trợ");
     }
   }
 }
