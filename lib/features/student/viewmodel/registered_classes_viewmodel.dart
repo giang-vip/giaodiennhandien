@@ -228,7 +228,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       print("ACTIVE SESSION MAP: $_activeSessions");
       print("SESSION LOCATION MAP: $_sessionLocations");
     } catch (e) {
-      print("❌ LỖI MY CLASSES: $e");
+      print(" LỖI MY CLASSES: $e");
       _registeredClasses = [];
       _activeSessions.clear();
       _sessionLocations.clear();

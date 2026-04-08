@@ -31,7 +31,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
     print("JWT DECODED: $jwt");
 
     if (jwt['type'] != 'access') {
-      print("❌ TOKEN TYPE INVALID");
+      print("TOKEN TYPE INVALID");
       await prefs.clear();
       return false;
     }
@@ -40,7 +40,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
     if (exp != null) {
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       if (now >= exp) {
-        print("❌ TOKEN EXPIRED");
+        print(" TOKEN EXPIRED");
         await prefs.clear();
         return false;
       }
@@ -83,7 +83,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
       print("TOKEN READ IN HOME: $token");
 
       if (token == null || token.isEmpty) {
-        print("❌ NO TOKEN");
+        print("NO TOKEN");
         totalClasses = 0;
         openClasses = 0;
         return;
@@ -91,7 +91,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
 
       final isValid = await _isTokenValid(token);
       if (!isValid) {
-        print("❌ TOKEN INVALID OR EXPIRED");
+        print("TOKEN INVALID OR EXPIRED");
         totalClasses = 0;
         openClasses = 0;
         return;
@@ -100,7 +100,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
       final jwtData = _decodeJwt(token);
       final String myTeacherId = jwtData['sub']?.toString() ?? '';
 
-      print("✅ TOKEN OK");
+      print("TOKEN OK");
       print("TEACHER ID: $myTeacherId");
 
       final headers = {
@@ -123,7 +123,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
 
       // Chỉ clear token nếu API classrooms cũng 401
       if (classResponse.statusCode == 401) {
-        print("❌ CLASS API 401 -> CLEAR TOKEN");
+        print("CLASS API 401 -> CLEAR TOKEN");
         await prefs.clear();
         totalClasses = 0;
         openClasses = 0;
@@ -182,7 +182,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
         print("TOTAL CLASSES: $totalClasses");
         print("OPEN CLASSES: $openClasses");
       } else {
-        print("❌ CLASS API ERROR: ${classResponse.statusCode}");
+        print(" CLASS API ERROR: ${classResponse.statusCode}");
         totalClasses = 0;
         openClasses = 0;
       }

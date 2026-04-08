@@ -84,14 +84,14 @@ class ClassManagementViewModel extends ChangeNotifier {
       final token = prefs.getString('access_token');
 
       if (token == null || token.isEmpty) {
-        print("❌ NO TOKEN IN CLASS MANAGEMENT");
+        print(" NO TOKEN IN CLASS MANAGEMENT");
         _realClasses = [];
         return;
       }
 
       final isValid = await _isTokenValid(token);
       if (!isValid) {
-        print("❌ TOKEN INVALID IN CLASS MANAGEMENT");
+        print("TOKEN INVALID IN CLASS MANAGEMENT");
         _realClasses = [];
         return;
       }
@@ -99,7 +99,7 @@ class ClassManagementViewModel extends ChangeNotifier {
       final jwtData = _decodeJwt(token);
       final myTeacherId = jwtData['sub']?.toString() ?? '';
 
-      print("✅ ACCESS TOKEN OK");
+      print(" ACCESS TOKEN OK");
       print("MY TEACHER ID: $myTeacherId");
 
       final headers = {
@@ -125,7 +125,7 @@ class ClassManagementViewModel extends ChangeNotifier {
       }
 
       if (classRes.statusCode != 200) {
-        print("❌ CLASS API ERROR: ${classRes.statusCode}");
+        print(" CLASS API ERROR: ${classRes.statusCode}");
         _realClasses = [];
         return;
       }

@@ -38,14 +38,14 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jwt_token') ?? '';
+      final token = prefs.getString('access_token') ?? '';
       final myStudentId = _getMyStudentId(token);
 
-      // 🛠️ THỬ GỌI API THEO CHUẨN (Bạn check log xem nếu 404 thì báo mình chỉnh lại link)
+      //  THỬ GỌI API THEO CHUẨN (Bạn check log xem nếu 404 thì báo mình chỉnh lại link)
       final url = Uri.parse('$_baseUrl/attendance/user/$myStudentId');
 
       print("\n=================  BẮT ĐẦU GỌI API LỊCH SỬ =================");
-      print("👉 GỌI LINK: $url");
+      print(" GỌI LINK: $url");
 
       final response = await http.get(url, headers: {
         'Authorization': 'Bearer $token',
@@ -53,8 +53,8 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
         'Accept': 'application/json',
       });
 
-      print("👉 HTTP STATUS: ${response.statusCode}");
-      print("👉 DỮ LIỆU TỪ JAVA TRẢ VỀ:\n${response.body}");
+      print("HTTP STATUS: ${response.statusCode}");
+      print("DỮ LIỆU TỪ JAVA TRẢ VỀ:\n${response.body}");
       print("==============================================================\n");
 
       if (response.statusCode == 200) {
@@ -99,7 +99,7 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
         _history.sort((a, b) => b.date.compareTo(a.date));
       }
     } catch (e) {
-      print("❌ LỖI CODE LẤY LỊCH SỬ: $e");
+      print("LỖI CODE LẤY LỊCH SỬ: $e");
     } finally {
       _isLoading = false;
       notifyListeners();

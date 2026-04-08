@@ -21,12 +21,17 @@ class _ClassListScreenState extends State<ClassListScreen> {
   }
 
   void _showTopNotification(
-      BuildContext context,
       String message,
       Color bgColor,
       IconData icon,
       ) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
       SnackBar(
         content: Row(
           children: [
@@ -46,7 +51,9 @@ class _ClassListScreenState extends State<ClassListScreen> {
         ),
         backgroundColor: bgColor,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
         margin: EdgeInsets.only(
           bottom: MediaQuery.of(context).size.height - 160,
           left: 16,
@@ -68,7 +75,9 @@ class _ClassListScreenState extends State<ClassListScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => context.read<ClassListViewModel>().fetchAvailableClasses(),
+            onPressed: () {
+              context.read<ClassListViewModel>().fetchAvailableClasses();
+            },
           ),
         ],
       ),
@@ -106,14 +115,25 @@ class _ClassListScreenState extends State<ClassListScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _buildInfoRow(Icons.person, 'Giảng viên: ${item.teacherName}'),
-                  _buildInfoRow(Icons.access_time, 'Thời gian: ${item.startTime} - ${item.endTime}'),
-                  _buildInfoRow(Icons.description, 'Mô tả: ${item.description}'),
+                  _buildInfoRow(
+                    Icons.person,
+                    'Giảng viên: ${item.teacherName}',
+                  ),
+                  _buildInfoRow(
+                    Icons.access_time,
+                    'Thời gian: ${item.startTime} - ${item.endTime}',
+                  ),
+                  _buildInfoRow(
+                    Icons.description,
+                    'Mô tả: ${item.description}',
+                  ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () async {
+                      onPressed: viewModel.isLoading
+                          ? null
+                          : () async {
                         final success = await context
                             .read<ClassListViewModel>()
                             .registerClass(item.id);
@@ -122,22 +142,23 @@ class _ClassListScreenState extends State<ClassListScreen> {
 
                         if (success) {
                           _showTopNotification(
-                            context,
                             'Đăng ký lớp thành công!',
                             Colors.green,
                             Icons.check_circle,
                           );
+
                           await Future.delayed(
                             const Duration(milliseconds: 1200),
                           );
+
                           if (!mounted) return;
+
                           Navigator.pushReplacementNamed(
                             context,
                             AppRoutes.registeredClasses,
                           );
                         } else {
                           _showTopNotification(
-                            context,
                             'Lỗi đăng ký lớp! Vui lòng thử lại.',
                             Colors.red,
                             Icons.error_outline,

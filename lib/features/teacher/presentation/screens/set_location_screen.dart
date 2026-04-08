@@ -44,23 +44,79 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final locVM = context.read<SetLocationViewModel>();
-      await locVM.fetchLocations();
-
-      if (!mounted) return;
-
-      if (_selectedRoomId != null && _selectedRoomId!.isNotEmpty) {
-        try {
-          final savedRoom = locVM.realLocations.firstWhere(
-                (r) => r.id.toString() == _selectedRoomId.toString(),
-          );
-          _selectedRoomName = savedRoom.name;
-          _moveCameraToRoom(savedRoom, keepCustomRadius: true);
-        } catch (e) {
-          debugPrint("LOAD SAVED ROOM ERROR: $e");
-        }
-      }
+      await _loadInitialData();
     });
+  }
+
+  Future<void> _loadInitialData() async {
+    final locVM = context.read<SetLocationViewModel>();
+
+    await locVM.loadInitialData();
+
+    if (!mounted) return;
+
+    // ưu tiên vị trí hiện tại của user khi mới mở màn
+    if (locVM.currentPosition != null) {
+      _currentMapPosition = LatLng(
+        locVM.currentPosition!.latitude,
+        locVM.currentPosition!.longitude,
+      );
+
+      await _moveCameraToLatLng(_currentMapPosition, 17);
+    }
+
+    // nếu lớp đã có roomId lưu trước đó thì nhảy về phòng đã chọn
+    if (_selectedRoomId != null && _selectedRoomId!.isNotEmpty) {
+      try {
+        final savedRoom = locVM.realLocations.firstWhere(
+              (r) => r.id.toString() == _selectedRoomId.toString(),
+        );
+        _selectedRoomName = savedRoom.name;
+        _moveCameraToRoom(savedRoom, keepCustomRadius: true);
+      } catch (e) {
+        debugPrint("LOAD SAVED ROOM ERROR: $e");
+      }
+    }
+  }
+
+  Future<void> _moveCameraToLatLng(LatLng target, double zoom) async {
+    if (_mapController.isCompleted) {
+      final controller = await _mapController.future;
+      await controller.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: target,
+            zoom: zoom,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _goToCurrentLocation() async {
+    final locVM = context.read<SetLocationViewModel>();
+    final ok = await locVM.getCurrentLocation();
+
+    if (!mounted) return;
+
+    if (ok && locVM.currentPosition != null) {
+      setState(() {
+        _currentMapPosition = LatLng(
+          locVM.currentPosition!.latitude,
+          locVM.currentPosition!.longitude,
+        );
+        _selectedRoomName = "Vị trí hiện tại";
+      });
+
+      await _moveCameraToLatLng(_currentMapPosition, 17);
+    } else {
+      _showTopNotification(
+        context,
+        locVM.locationError ?? 'Không lấy được vị trí hiện tại',
+        Colors.red,
+        Icons.error_outline,
+      );
+    }
   }
 
   @override
@@ -83,17 +139,10 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
       }
     });
 
-    if (_mapController.isCompleted) {
-      final GoogleMapController controller = await _mapController.future;
-      await controller.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _currentMapPosition,
-            zoom: 18.5,
-          ),
-        ),
-      );
+    await _moveCameraToLatLng(_currentMapPosition, 18.5);
 
+    if (_mapController.isCompleted) {
+      final controller = await _mapController.future;
       Future.delayed(const Duration(milliseconds: 500), () {
         controller.showMarkerInfoWindow(const MarkerId('room_location'));
       });
@@ -148,6 +197,12 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
       appBar: AppBar(
         title: Text("Set Location: ${widget.classModel.className}"),
         elevation: 0,
+        actions: [
+          IconButton(
+            onPressed: _goToCurrentLocation,
+            icon: const Icon(Icons.my_location),
+          ),
+        ],
       ),
       body: locVM.isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -164,6 +219,11 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            if (locVM.isGettingCurrentLocation)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text("Đang lấy vị trí hiện tại..."),
+              ),
             AspectRatio(
               aspectRatio: 1.0,
               child: Container(
@@ -178,6 +238,8 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(18),
                   child: GoogleMap(
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: true,
                     mapType: MapType.normal,
                     initialCameraPosition: CameraPosition(
                       target: _currentMapPosition,
@@ -193,7 +255,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                         markerId: const MarkerId('room_location'),
                         position: _currentMapPosition,
                         infoWindow: InfoWindow(
-                          title: _selectedRoomName ?? 'Vị trí phòng học',
+                          title: _selectedRoomName ?? 'Vị trí hiện tại / phòng học',
                           snippet:
                           'Bán kính hợp lệ: ${_currentRadius.toInt()}m',
                         ),
@@ -273,9 +335,8 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               onChanged: (val) {
                 setState(() {
                   final parsed = double.tryParse(val);
-                  _currentRadius = (parsed != null && parsed > 0)
-                      ? parsed
-                      : 50.0;
+                  _currentRadius =
+                  (parsed != null && parsed > 0) ? parsed : 50.0;
                 });
               },
               decoration: InputDecoration(

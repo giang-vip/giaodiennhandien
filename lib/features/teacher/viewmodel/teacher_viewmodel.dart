@@ -41,7 +41,7 @@ class TeacherViewModel extends ChangeNotifier {
     final token = prefs.getString('access_token');
 
     if (token == null || token.isEmpty) {
-      print("❌ NO TOKEN");
+      print(" NO TOKEN");
       return null;
     }
 
@@ -77,7 +77,7 @@ class TeacherViewModel extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print("❌ LOCATION ERROR: $e");
+      print("LOCATION ERROR: $e");
     }
   }
 
@@ -102,7 +102,7 @@ class TeacherViewModel extends ChangeNotifier {
         headers: {'Authorization': 'Bearer $token'},
       );
 
-      print("📦 CLASS BODY: ${response.body}");
+      print(" CLASS BODY: ${response.body}");
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -137,7 +137,7 @@ class TeacherViewModel extends ChangeNotifier {
         }).where((c) => c.teacherId == myTeacherId).toList();
       }
     } catch (e) {
-      print("❌ FETCH CLASS ERROR: $e");
+      print(" FETCH CLASS ERROR: $e");
       _realClasses = [];
     } finally {
       _isLoading = false;
@@ -163,7 +163,7 @@ class TeacherViewModel extends ChangeNotifier {
           int.tryParse(jwtData['sub']?.toString() ?? '0') ?? 0;
 
       if (myTeacherId == 0) {
-        print("❌ INVALID TEACHER ID");
+        print("INVALID TEACHER ID");
         return false;
       }
 
@@ -188,8 +188,8 @@ class TeacherViewModel extends ChangeNotifier {
         }),
       );
 
-      print("📌 CREATE STATUS: ${response.statusCode}");
-      print("📌 CREATE BODY: ${response.body}");
+      print("CREATE STATUS: ${response.statusCode}");
+      print(" CREATE BODY: ${response.body}");
 
       if (response.statusCode == 200 ||
           response.statusCode == 201) {
@@ -199,7 +199,7 @@ class TeacherViewModel extends ChangeNotifier {
 
       return false;
     } catch (e) {
-      print("❌ CREATE ERROR: $e");
+      print(" CREATE ERROR: $e");
       return false;
     } finally {
       _isLoading = false;
@@ -219,6 +219,6 @@ class TeacherViewModel extends ChangeNotifier {
 
   // ================= DELETE =================
   void deleteClass(String classId) {
-    print("⚠️ DELETE chưa gọi API");
+    print("DELETE chưa gọi API");
   }
 }

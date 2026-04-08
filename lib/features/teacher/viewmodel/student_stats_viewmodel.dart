@@ -36,11 +36,11 @@ class StudentStatsViewModel extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token') ?? '';
 
-      // ⚠️ ĐƯỜNG LINK ĐANG GỌI TẠM THỜI (BẠN CHÚ Ý THEO DÕI LOG XEM CÓ BỊ 404 KHÔNG NHÉ)
+      //  ĐƯỜNG LINK ĐANG GỌI TẠM THỜI (BẠN CHÚ Ý THEO DÕI LOG XEM CÓ BỊ 404 KHÔNG NHÉ)
       final url = Uri.parse('$_baseUrl/attendance/class/$classId');
 
       print("\n================= BẮT ĐẦU GỌI API THỐNG KÊ LỚP =================");
-      print("👉 GỌI LINK: $url");
+      print(" GỌI LINK: $url");
 
       final response = await http.get(url, headers: {
         'Authorization': 'Bearer $token',
@@ -48,8 +48,8 @@ class StudentStatsViewModel extends ChangeNotifier {
         'Accept': 'application/json',
       });
 
-      print("👉 HTTP STATUS: ${response.statusCode}");
-      print("👉 DỮ LIỆU TỪ JAVA TRẢ VỀ:\n${response.body}");
+      print(" HTTP STATUS: ${response.statusCode}");
+      print("DỮ LIỆU TỪ JAVA TRẢ VỀ:\n${response.body}");
       print("=====================================================================\n");
 
       if (response.statusCode == 200) {
@@ -59,7 +59,7 @@ class StudentStatsViewModel extends ChangeNotifier {
         Map<String, StudentStatModel> mapStats = {};
 
         for (var item in content) {
-          // 🔥 ĐÃ FIX: Chỉ đường cho Flutter chui vào trong object 'user' để lấy id và fullName
+          // ĐÃ FIX: Chỉ đường cho Flutter chui vào trong object 'user' để lấy id và fullName
           String uid = item['user']?['id']?.toString() ?? item['userId']?.toString() ?? '0';
 
           // Ưu tiên lấy fullName, nếu fullName bị null thì lấy username
@@ -81,13 +81,13 @@ class StudentStatsViewModel extends ChangeNotifier {
         _statsList = mapStats.values.toList();
         _statsList.sort((a, b) => a.studentName.compareTo(b.studentName));
       } else if (response.statusCode == 404) {
-        print("❌ LỖI 404: ĐƯỜNG LINK NÀY KHÔNG TỒN TẠI HOẶC TRỐNG DỮ LIỆU!");
+        print(" LỖI 404: ĐƯỜNG LINK NÀY KHÔNG TỒN TẠI HOẶC TRỐNG DỮ LIỆU!");
         _statsList = [];
       } else {
-        print("❌ LỖI KHÁC: Backend trả về mã ${response.statusCode}");
+        print(" LỖI KHÁC: Backend trả về mã ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ LỖI CODE FLUTTER: $e");
+      print(" LỖI CODE FLUTTER: $e");
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -99,18 +99,18 @@ class StudentStatsViewModel extends ChangeNotifier {
   // =========================================================================
   Future<void> downloadExcel(String classId) async {
     try {
-      // ⚠️ Đường link API tải Excel (Cần check lại Backend có viết API này chưa)
+      // ⚠Đường link API tải Excel (Cần check lại Backend có viết API này chưa)
       final url = Uri.parse('$_baseUrl/attendance/export/class/$classId');
 
-      print("\n👉 ĐANG GỌI LINK TẢI EXCEL: $url");
+      print("\n ĐANG GỌI LINK TẢI EXCEL: $url");
 
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
       } else {
-        print("❌ Không thể mở trình duyệt để tải file!");
+        print(" Không thể mở trình duyệt để tải file!");
       }
     } catch (e) {
-      print("❌ Lỗi khi tải Excel: $e");
+      print(" Lỗi khi tải Excel: $e");
     }
   }
 }

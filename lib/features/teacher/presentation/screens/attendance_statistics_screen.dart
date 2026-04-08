@@ -16,7 +16,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
   @override
   void initState() {
     super.initState();
-    // 🔥 BÍ QUYẾT LÀ ĐÂY: Tự động gọi API lấy 5 lớp về ngay khi mở màn hình
+    // BÍ QUYẾT LÀ ĐÂY: Tự động gọi API lấy 5 lớp về ngay khi mở màn hình
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<TeacherViewModel>().fetchClasses();
     });

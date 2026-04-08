@@ -76,7 +76,7 @@ class AttendanceViewModel extends ChangeNotifier {
 
   // BỔ SUNG: HÀM LẤY TỌA ĐỘ LỚP HỌC TỪ BACKEND BẰNG LOCATION ID
   Future<Map<String, double>> _fetchClassLocation(int locationId, String token) async {
-    print("⏳ Đang lấy tọa độ lớp học từ locationId: $locationId...");
+    print(" Đang lấy tọa độ lớp học từ locationId: $locationId...");
     try {
       // 1. Thử gọi với URL có chữ 's' (chuẩn RESTful thường dùng số nhiều)
       var response = await http.get(
