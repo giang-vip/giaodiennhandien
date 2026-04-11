@@ -1,30 +1,26 @@
 class ApiConstants {
-  // =========================================================================
-  // 🛠️ HƯỚNG DẪN CẤU HÌNH IP (ĐỌC KỸ TRƯỚC KHI CHẠY CODE)
-  // =========================================================================
-  //
-  // 1. Dành cho MÁY ẢO ANDROID (Emulator):
-  //    Đổi ipAddress thành: '10.0.2.2'
-  //
-  // 2. Dành cho ĐIỆN THOẠI THẬT (Kết nối cùng mạng Wifi với máy tính):
-  //    Mở CMD gõ 'ipconfig' lấy IPv4 Address.
-  //    Ví dụ đổi ipAddress thành: '192.168.1.21'
-  //
-  // TỪ NAY VỀ SAU, BẠN CHỈ CẦN SỬA DUY NHẤT DÒNG SỐ 16 NÀY KHI ĐỔI MẠNG!
-  // =========================================================================
+  // ================= CHỌN 1 CHẾ ĐỘ =================
+  static const bool useWindowsDesktop = true;
+  static const bool useAndroidEmulator = false;
+  static const bool usePhysicalDevice = false;
 
-  static const String ipAddress = '192.168.100.127'; // <-- SỬA ĐỊA CHỈ IP Ở ĐÂY
-  static const String port = '8081';              // <-- CỔNG SPRING BOOT
+  // IP máy tính khi chạy bằng điện thoại thật
+  static const String physicalDeviceIp = '192.168.100.127';
 
-  // Đường dẫn gốc chung cho toàn bộ các API (Lớp, Phòng, Điểm danh...)
-  static const String baseUrl = 'http://$ipAddress:$port/api';
+  static const String port = '8081';
 
-  // Đường dẫn riêng dành cho chức năng Đăng nhập (Auth)
-  // (Do Backend của bạn tách riêng auth ra khỏi /api hoặc dùng /api/v1/auth)
-  static const String authUrl = 'http://$ipAddress:$port/auth';
+  static String get host {
+    if (useAndroidEmulator) return '10.0.2.2';
+    if (usePhysicalDevice) return physicalDeviceIp;
+    return '127.0.0.1'; // Windows desktop
+  }
 
-  // đường dẫn của model nhận diện khuôn mặt
-  // static const String faceRecognitionUrl = 'http://$ipAddress:$port/face-recognition';
-  static const String aiBaseUrl = "http://192.168.65.1:8000";
+  // API chung
+  static String get baseUrl => 'http://$host:$port/api';
 
+  // API login
+  static String get authUrl => 'http://$host:$port/auth';
+
+  // AI service
+  static const String aiBaseUrl = 'http://192.168.65.1:8000';
 }

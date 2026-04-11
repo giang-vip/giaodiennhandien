@@ -1,4 +1,6 @@
 class AppClassModel {
+  static const Object _unset = Object();
+
   final String id;
   final String teacherId;
   final String teacherName;
@@ -10,6 +12,9 @@ class AppClassModel {
   final int attendanceDuration;
   final String? roomId;
   final double? radius;
+
+  final String? attendanceStartTime;
+  final String? attendanceEndTime;
 
   AppClassModel({
     required this.id,
@@ -23,14 +28,12 @@ class AppClassModel {
     this.attendanceDuration = 0,
     this.roomId,
     this.radius,
+    this.attendanceStartTime,
+    this.attendanceEndTime,
   });
 
-  // ===========================================================================
-  // 1. Hàm đúc dữ liệu từ JSON (Map) của Backend sang Object Flutter
-  // ===========================================================================
   factory AppClassModel.fromJson(Map<String, dynamic> json) {
     return AppClassModel(
-      // Dùng toString() để tránh lỗi nếu Backend trả về kiểu int cho ID
       id: json['id']?.toString() ?? '',
       teacherId: json['teacherId']?.toString() ?? '',
       teacherName: json['teacherName'] ?? 'Không rõ giảng viên',
@@ -41,14 +44,12 @@ class AppClassModel {
       isAttendanceOpen: json['isAttendanceOpen'] ?? false,
       attendanceDuration: json['attendanceDuration'] ?? 0,
       roomId: json['roomId']?.toString(),
-      // Xử lý số thực (double) cẩn thận để tránh lỗi type 'int' is not a subtype of 'double'
       radius: json['radius'] != null ? (json['radius'] as num).toDouble() : null,
+      attendanceStartTime: json['attendanceStartTime']?.toString(),
+      attendanceEndTime: json['attendanceEndTime']?.toString(),
     );
   }
 
-  // ===========================================================================
-  // 2. Hàm chuyển đổi ngược lại từ Object sang JSON (để gửi lên Backend)
-  // ===========================================================================
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -62,12 +63,11 @@ class AppClassModel {
       'attendanceDuration': attendanceDuration,
       'roomId': roomId,
       'radius': radius,
+      'attendanceStartTime': attendanceStartTime,
+      'attendanceEndTime': attendanceEndTime,
     };
   }
 
-  // ===========================================================================
-  // 3. Hàm tạo bản sao (Giữ nguyên các giá trị cũ nếu không truyền giá trị mới)
-  // ===========================================================================
   AppClassModel copyWith({
     String? id,
     String? teacherId,
@@ -78,8 +78,10 @@ class AppClassModel {
     String? endTime,
     bool? isAttendanceOpen,
     int? attendanceDuration,
-    String? roomId,
-    double? radius,
+    Object? roomId = _unset,
+    Object? radius = _unset,
+    Object? attendanceStartTime = _unset,
+    Object? attendanceEndTime = _unset,
   }) {
     return AppClassModel(
       id: id ?? this.id,
@@ -91,8 +93,43 @@ class AppClassModel {
       endTime: endTime ?? this.endTime,
       isAttendanceOpen: isAttendanceOpen ?? this.isAttendanceOpen,
       attendanceDuration: attendanceDuration ?? this.attendanceDuration,
-      roomId: roomId ?? this.roomId,
-      radius: radius ?? this.radius,
+      roomId: identical(roomId, _unset) ? this.roomId : roomId as String?,
+      radius: identical(radius, _unset) ? this.radius : radius as double?,
+      attendanceStartTime: identical(attendanceStartTime, _unset)
+          ? this.attendanceStartTime
+          : attendanceStartTime as String?,
+      attendanceEndTime: identical(attendanceEndTime, _unset)
+          ? this.attendanceEndTime
+          : attendanceEndTime as String?,
     );
+  }
+
+  DateTime? get attendanceStartDateTime {
+    if (attendanceStartTime == null || attendanceStartTime!.trim().isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(attendanceStartTime!);
+  }
+
+  DateTime? get attendanceEndDateTime {
+    if (attendanceEndTime == null || attendanceEndTime!.trim().isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(attendanceEndTime!);
+  }
+
+  bool get isAttendanceExpired {
+    final end = attendanceEndDateTime;
+    if (end == null) return false;
+    return DateTime.now().isAfter(end);
+  }
+
+  Duration? get remainingAttendanceTime {
+    final end = attendanceEndDateTime;
+    if (end == null) return null;
+
+    final diff = end.difference(DateTime.now());
+    if (diff.isNegative) return Duration.zero;
+    return diff;
   }
 }

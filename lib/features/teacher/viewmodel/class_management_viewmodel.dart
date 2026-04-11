@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -15,6 +16,8 @@ class ClassManagementViewModel extends ChangeNotifier {
   List<AppClassModel> get realClasses => _realClasses;
 
   final Map<String, Map<String, dynamic>> _activeSessionData = {};
+  final Map<String, Timer> _attendanceTimers = {};
+  final Set<String> _closingClassIds = {};
 
   Map<String, dynamic> _decodeJwt(String token) {
     try {
@@ -75,6 +78,54 @@ class ClassManagementViewModel extends ChangeNotifier {
     return input.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
   }
 
+  DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    if (text.isEmpty) return null;
+    return DateTime.tryParse(text);
+  }
+
+  bool _isOpenStatus(dynamic status) {
+    final s = status?.toString().toUpperCase().trim() ?? '';
+    return s == 'OPEN' || s == '1' || s == 'ACTIVE' || s == 'ONGOING';
+  }
+
+  int _calculateAttendanceMinutes(dynamic startTime, dynamic endTime) {
+    final start = _parseDateTime(startTime);
+    final end = _parseDateTime(endTime);
+
+    if (start == null || end == null) return 0;
+
+    final minutes = end.difference(start).inMinutes;
+    return minutes > 0 ? minutes : 0;
+  }
+
+  void _cancelTimer(String classId) {
+    _attendanceTimers[classId]?.cancel();
+    _attendanceTimers.remove(classId);
+  }
+
+  void _cancelAllTimers() {
+    for (final timer in _attendanceTimers.values) {
+      timer.cancel();
+    }
+    _attendanceTimers.clear();
+  }
+
+  Future<Map<String, String>> _getHeaders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    if (token == null || token.isEmpty) {
+      throw Exception("Không tìm thấy token");
+    }
+
+    return {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    };
+  }
+
   Future<void> fetchClasses() async {
     _isLoading = true;
     notifyListeners();
@@ -84,7 +135,7 @@ class ClassManagementViewModel extends ChangeNotifier {
       final token = prefs.getString('access_token');
 
       if (token == null || token.isEmpty) {
-        print(" NO TOKEN IN CLASS MANAGEMENT");
+        print("NO TOKEN IN CLASS MANAGEMENT");
         _realClasses = [];
         return;
       }
@@ -99,7 +150,7 @@ class ClassManagementViewModel extends ChangeNotifier {
       final jwtData = _decodeJwt(token);
       final myTeacherId = jwtData['sub']?.toString() ?? '';
 
-      print(" ACCESS TOKEN OK");
+      print("ACCESS TOKEN OK");
       print("MY TEACHER ID: $myTeacherId");
 
       final headers = {
@@ -108,8 +159,8 @@ class ClassManagementViewModel extends ChangeNotifier {
       };
 
       _activeSessionData.clear();
+      _cancelAllTimers();
 
-      // 1) Lấy class trước
       final classRes = await http.get(
         Uri.parse('$_baseUrl/classrooms?page=0&size=50'),
         headers: headers,
@@ -125,7 +176,7 @@ class ClassManagementViewModel extends ChangeNotifier {
       }
 
       if (classRes.statusCode != 200) {
-        print(" CLASS API ERROR: ${classRes.statusCode}");
+        print("CLASS API ERROR: ${classRes.statusCode}");
         _realClasses = [];
         return;
       }
@@ -164,8 +215,11 @@ class ClassManagementViewModel extends ChangeNotifier {
           startTime: item['startDate']?.toString() ?? '',
           endTime: item['endDate']?.toString() ?? '',
           isAttendanceOpen: false,
+          attendanceDuration: 0,
           roomId: roomId,
           radius: localRadius,
+          attendanceStartTime: null,
+          attendanceEndTime: null,
         );
       }).toList();
 
@@ -173,7 +227,6 @@ class ClassManagementViewModel extends ChangeNotifier {
         return c.teacherId.toString() == myTeacherId;
       }).toList();
 
-      // 2) Lấy sessions sau
       final sessionRes = await http.get(
         Uri.parse('$_baseUrl/sessions'),
         headers: headers,
@@ -182,6 +235,8 @@ class ClassManagementViewModel extends ChangeNotifier {
       print("SESSION STATUS: ${sessionRes.statusCode}");
       print("SESSION BODY: ${sessionRes.body}");
 
+      final List<String> expiredClassIds = [];
+
       if (sessionRes.statusCode == 200) {
         final sessionData = jsonDecode(utf8.decode(sessionRes.bodyBytes));
         final List sessionList = _safeList(sessionData);
@@ -189,12 +244,9 @@ class ClassManagementViewModel extends ChangeNotifier {
         print("SESSION LIST LENGTH: ${sessionList.length}");
 
         for (var s in sessionList) {
-          final status = s['status']?.toString().toUpperCase();
+          final status = s['status'];
 
-          if (status != 'OPEN' &&
-              status != '1' &&
-              status != 'ACTIVE' &&
-              status != 'ONGOING') {
+          if (!_isOpenStatus(status)) {
             continue;
           }
 
@@ -210,11 +262,9 @@ class ClassManagementViewModel extends ChangeNotifier {
           final sessionTitle = _normalizeText((s['title'] ?? '').toString());
           final sessionLocationId = (s['locationId'] ?? '').toString();
 
-          // fallback 1: match theo title
           if (classId == null || classId.isEmpty) {
             for (final c in _realClasses) {
-              final expectedTitle =
-              _normalizeText("Attendance - ${c.className}");
+              final expectedTitle = _normalizeText("Attendance - ${c.className}");
               if (sessionTitle == expectedTitle) {
                 classId = c.id;
                 break;
@@ -222,7 +272,6 @@ class ClassManagementViewModel extends ChangeNotifier {
             }
           }
 
-          // fallback 2: match theo locationId nếu chỉ có 1 lớp khớp
           if ((classId == null || classId.isEmpty) &&
               sessionLocationId.isNotEmpty) {
             final candidates = _realClasses.where((c) {
@@ -234,37 +283,128 @@ class ClassManagementViewModel extends ChangeNotifier {
             }
           }
 
-          if (classId != null && classId.isNotEmpty) {
-            _activeSessionData[classId] = {
-              "sessionId": s['sessionId'] ?? s['id'],
-              "classId": int.tryParse(classId) ?? 0,
-              "status": status,
-              "locationId": s['locationId'] ?? 0,
-              "startTime": s['startTime'],
-              "endTime": s['endTime'],
-              "title": s['title'],
-            };
-
-            final index = _realClasses.indexWhere((c) => c.id == classId);
-            if (index != -1) {
-              final old = _realClasses[index];
-              _realClasses[index] = old.copyWith(isAttendanceOpen: true);
-            }
-
-            print("MATCHED OPEN SESSION -> classId=$classId, sessionId=${s['sessionId'] ?? s['id']}");
-          } else {
+          if (classId == null || classId.isEmpty) {
             print("UNMATCHED OPEN SESSION: ${jsonEncode(s)}");
+            continue;
+          }
+
+          final sessionEnd = _parseDateTime(s['endTime']);
+          final isExpired =
+              sessionEnd != null && !sessionEnd.isAfter(DateTime.now());
+
+          _activeSessionData[classId] = {
+            "sessionId": s['sessionId'] ?? s['id'],
+            "classId": int.tryParse(classId) ?? 0,
+            "status": s['status'],
+            "locationId": s['locationId'] ?? 0,
+            "startTime": s['startTime'],
+            "endTime": s['endTime'],
+            "title": s['title'],
+          };
+
+          final index = _realClasses.indexWhere((c) => c.id == classId);
+          if (index != -1) {
+            final old = _realClasses[index];
+
+            _realClasses[index] = old.copyWith(
+              isAttendanceOpen: !isExpired,
+              attendanceDuration: _calculateAttendanceMinutes(
+                s['startTime'],
+                s['endTime'],
+              ),
+              attendanceStartTime: s['startTime']?.toString(),
+              attendanceEndTime: s['endTime']?.toString(),
+            );
+          }
+
+          if (isExpired) {
+            expiredClassIds.add(classId);
+            print("SESSION EXPIRED -> classId=$classId");
+          } else {
+            print(
+              "MATCHED OPEN SESSION -> classId=$classId, sessionId=${s['sessionId'] ?? s['id']}",
+            );
           }
         }
       }
 
+      for (final c in _realClasses) {
+        if (c.isAttendanceOpen) {
+          _scheduleAutoClose(c.id);
+        }
+      }
+
       print("FINAL REAL CLASSES LENGTH: ${_realClasses.length}");
+
+      for (final classId in expiredClassIds) {
+        _closeExpiredSession(classId);
+      }
     } catch (e) {
       print("FETCH ERROR: $e");
       _realClasses = [];
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  void _scheduleAutoClose(String classId) {
+    _cancelTimer(classId);
+
+    final classModel = _realClasses.cast<AppClassModel?>().firstWhere(
+          (c) => c?.id == classId,
+      orElse: () => null,
+    );
+
+    if (classModel == null || !classModel.isAttendanceOpen) {
+      return;
+    }
+
+    final endTime = classModel.attendanceEndDateTime;
+    if (endTime == null) {
+      return;
+    }
+
+    final remain = endTime.difference(DateTime.now());
+
+    if (remain.inSeconds <= 0) {
+      _closeExpiredSession(classId);
+      return;
+    }
+
+    _attendanceTimers[classId] = Timer(remain, () async {
+      await _closeExpiredSession(classId);
+    });
+  }
+
+  Future<void> _closeExpiredSession(String classId) async {
+    if (_closingClassIds.contains(classId)) return;
+    _closingClassIds.add(classId);
+
+    try {
+      final sessionData = _activeSessionData[classId];
+      if (sessionData == null) {
+        return;
+      }
+
+      final currentIndex = _realClasses.indexWhere((c) => c.id == classId);
+      if (currentIndex == -1) {
+        return;
+      }
+
+      final current = _realClasses[currentIndex];
+      await _closeSessionInternal(
+        classId: classId,
+        current: current,
+        sessionData: sessionData,
+        silentRefresh: true,
+      );
+
+      await fetchClasses();
+    } catch (e) {
+      print("AUTO CLOSE ERROR: $e");
+    } finally {
+      _closingClassIds.remove(classId);
     }
   }
 
@@ -290,6 +430,8 @@ class ClassManagementViewModel extends ChangeNotifier {
 
       if (res.statusCode == 200 || res.statusCode == 204) {
         _realClasses.removeWhere((c) => c.id == classId);
+        _cancelTimer(classId);
+        _activeSessionData.remove(classId);
         await prefs.remove('class_${classId}_room');
         await prefs.remove('class_${classId}_radius');
         notifyListeners();
@@ -379,6 +521,15 @@ class ClassManagementViewModel extends ChangeNotifier {
       print("OPEN SESSION RESPONSE: ${res.body}");
 
       if (res.statusCode == 200 || res.statusCode == 201) {
+        _realClasses[index] = current.copyWith(
+          isAttendanceOpen: true,
+          attendanceDuration: minutes,
+          attendanceStartTime: now.toIso8601String(),
+          attendanceEndTime: end.toIso8601String(),
+        );
+        notifyListeners();
+
+        _scheduleAutoClose(classId);
         await fetchClasses();
       } else if (res.statusCode == 403) {
         throw Exception("403 Forbidden - tài khoản không có quyền mở điểm danh");
@@ -390,7 +541,6 @@ class ClassManagementViewModel extends ChangeNotifier {
     } else {
       Map<String, dynamic>? sessionData = _activeSessionData[classId];
 
-      // fallback tìm theo title nếu không có đúng classId
       if (sessionData == null) {
         final expectedTitle =
         _normalizeText("Attendance - ${current.className}");
@@ -407,7 +557,6 @@ class ClassManagementViewModel extends ChangeNotifier {
         }
       }
 
-      // fallback tìm theo location nếu vẫn chưa thấy
       if (sessionData == null && (current.roomId ?? '').isNotEmpty) {
         for (final entry in _activeSessionData.entries) {
           final locId = (entry.value['locationId'] ?? '').toString();
@@ -424,51 +573,105 @@ class ClassManagementViewModel extends ChangeNotifier {
         throw Exception("Không tìm thấy session đang mở");
       }
 
-      final sessionId = sessionData['sessionId'];
-      if (sessionId == null) {
-        throw Exception("Session đang mở không có sessionId");
-      }
-
-      int locationId = int.tryParse(current.roomId ?? '') ?? 0;
-      if (locationId <= 0) {
-        final rawLocationId = sessionData['locationId'];
-        if (rawLocationId != null) {
-          locationId = int.tryParse(rawLocationId.toString()) ?? 0;
-        }
-      }
-
-      if (locationId <= 0) {
-        throw Exception("Không tìm thấy locationId để đóng điểm danh");
-      }
-
-      final body = {
-        "title": sessionData['title'] ?? "Attendance - ${current.className}",
-        "startTime":
-        sessionData['startTime'] ?? DateTime.now().toIso8601String(),
-        "endTime": DateTime.now().toIso8601String(),
-        "status": "CLOSED",
-        "classId": int.parse(classId),
-        "locationId": locationId,
-      };
-
-      print("========== CLOSE SESSION ==========");
-      print("URL: $_baseUrl/sessions/$sessionId");
-      print("BODY: ${jsonEncode(body)}");
-
-      final res = await http.put(
-        Uri.parse('$_baseUrl/sessions/$sessionId'),
-        headers: headers,
-        body: jsonEncode(body),
+      await _closeSessionInternal(
+        classId: classId,
+        current: current,
+        sessionData: sessionData,
       );
+    }
+  }
 
-      print("CLOSE SESSION STATUS: ${res.statusCode}");
-      print("CLOSE SESSION RESPONSE: ${res.body}");
+  Future<void> _closeSessionInternal({
+    required String classId,
+    required AppClassModel current,
+    required Map<String, dynamic> sessionData,
+    bool silentRefresh = false,
+  }) async {
+    final headers = await _getHeaders();
 
-      if (res.statusCode == 200 || res.statusCode == 201) {
-        await fetchClasses();
-      } else {
-        throw Exception("Đóng điểm danh thất bại: ${res.body}");
+    final sessionId = sessionData['sessionId'];
+    if (sessionId == null) {
+      throw Exception("Session đang mở không có sessionId");
+    }
+
+    int locationId = int.tryParse(current.roomId ?? '') ?? 0;
+    if (locationId <= 0) {
+      final rawLocationId = sessionData['locationId'];
+      if (rawLocationId != null) {
+        locationId = int.tryParse(rawLocationId.toString()) ?? 0;
       }
     }
+
+    if (locationId <= 0) {
+      throw Exception("Không tìm thấy locationId để đóng điểm danh");
+    }
+
+    final body = {
+      "title": sessionData['title'] ?? "Attendance - ${current.className}",
+      "startTime":
+      sessionData['startTime'] ?? DateTime.now().toIso8601String(),
+      "endTime": DateTime.now().toIso8601String(),
+      "status": "CLOSED",
+      "classId": int.parse(classId),
+      "locationId": locationId,
+    };
+
+    print("========== CLOSE SESSION ==========");
+    print("URL: $_baseUrl/sessions/$sessionId");
+    print("BODY: ${jsonEncode(body)}");
+
+    final res = await http.put(
+      Uri.parse('$_baseUrl/sessions/$sessionId'),
+      headers: headers,
+      body: jsonEncode(body),
+    );
+
+    print("CLOSE SESSION STATUS: ${res.statusCode}");
+    print("CLOSE SESSION RESPONSE: ${res.body}");
+
+    if (res.statusCode == 200 || res.statusCode == 201) {
+      _cancelTimer(classId);
+      _activeSessionData.remove(classId);
+
+      final index = _realClasses.indexWhere((c) => c.id == classId);
+      if (index != -1) {
+        _realClasses[index] = _realClasses[index].copyWith(
+          isAttendanceOpen: false,
+          attendanceDuration: 0,
+          attendanceStartTime: null,
+          attendanceEndTime: null,
+        );
+        notifyListeners();
+      }
+
+      if (!silentRefresh) {
+        await fetchClasses();
+      }
+    } else {
+      throw Exception("Đóng điểm danh thất bại: ${res.body}");
+    }
+  }
+
+  String getRemainingTimeText(AppClassModel classModel) {
+    final remain = classModel.remainingAttendanceTime;
+
+    if (!classModel.isAttendanceOpen) return "Đã đóng";
+    if (remain == null) return "Không rõ thời gian";
+    if (remain == Duration.zero) return "Đã hết giờ";
+
+    final hours = remain.inHours;
+    final minutes = remain.inMinutes.remainder(60);
+    final seconds = remain.inSeconds.remainder(60);
+
+    if (hours > 0) {
+      return "${hours}h ${minutes}m ${seconds}s";
+    }
+    return "${minutes}m ${seconds}s";
+  }
+
+  @override
+  void dispose() {
+    _cancelAllTimers();
+    super.dispose();
   }
 }
