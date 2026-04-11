@@ -12,6 +12,9 @@ class TeacherHomeViewModel extends ChangeNotifier {
 
   int totalClasses = 0;
   int openClasses = 0;
+  String teacherName = 'Teacher';
+
+  List<Map<String, dynamic>> teacherClasses = [];
 
   Map<String, dynamic> _decodeJwt(String token) {
     try {
@@ -28,10 +31,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final jwt = _decodeJwt(token);
 
-    print("JWT DECODED: $jwt");
-
     if (jwt['type'] != 'access') {
-      print("TOKEN TYPE INVALID");
       await prefs.clear();
       return false;
     }
@@ -40,7 +40,6 @@ class TeacherHomeViewModel extends ChangeNotifier {
     if (exp != null) {
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       if (now >= exp) {
-        print(" TOKEN EXPIRED");
         await prefs.clear();
         return false;
       }
@@ -49,27 +48,49 @@ class TeacherHomeViewModel extends ChangeNotifier {
     return true;
   }
 
-  List _safeList(dynamic data) {
+  List<dynamic> _safeList(dynamic data) {
     try {
       if (data is List) return data;
 
       if (data is Map) {
         if (data['data'] != null) {
           if (data['data'] is Map && data['data']['content'] != null) {
-            return data['data']['content'];
+            return List<dynamic>.from(data['data']['content']);
           }
           if (data['data'] is List) {
-            return data['data'];
+            return List<dynamic>.from(data['data']);
           }
         }
 
         if (data['content'] != null) {
-          return data['content'];
+          return List<dynamic>.from(data['content']);
         }
       }
     } catch (_) {}
 
     return [];
+  }
+
+  bool _isOpenStatus(dynamic status) {
+    final value = status?.toString().toUpperCase() ?? '';
+    return value == 'OPEN' ||
+        value == '1' ||
+        value == 'ACTIVE' ||
+        value == 'ONGOING';
+  }
+
+  String _extractClassId(Map item) {
+    return (item['id'] ?? item['classId'] ?? '').toString();
+  }
+
+  String? _extractSessionClassId(Map session) {
+    return session['classroomId']?.toString() ??
+        session['classRoomId']?.toString() ??
+        session['classId']?.toString() ??
+        session['classRoom']?['id']?.toString() ??
+        session['classRoom']?['classId']?.toString() ??
+        session['classroom']?['id']?.toString() ??
+        session['classroom']?['classId']?.toString();
   }
 
   Future<void> fetchDashboardData() async {
@@ -80,28 +101,29 @@ class TeacherHomeViewModel extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token');
 
-      print("TOKEN READ IN HOME: $token");
-
       if (token == null || token.isEmpty) {
-        print("NO TOKEN");
         totalClasses = 0;
         openClasses = 0;
+        teacherClasses = [];
+        teacherName = 'Teacher';
         return;
       }
 
       final isValid = await _isTokenValid(token);
       if (!isValid) {
-        print("TOKEN INVALID OR EXPIRED");
         totalClasses = 0;
         openClasses = 0;
+        teacherClasses = [];
+        teacherName = 'Teacher';
         return;
       }
 
       final jwtData = _decodeJwt(token);
       final String myTeacherId = jwtData['sub']?.toString() ?? '';
-
-      print("TOKEN OK");
-      print("TEACHER ID: $myTeacherId");
+      teacherName =
+          jwtData['username']?.toString() ??
+              jwtData['fullName']?.toString() ??
+              'Teacher';
 
       final headers = {
         'Authorization': 'Bearer $token',
@@ -109,63 +131,49 @@ class TeacherHomeViewModel extends ChangeNotifier {
       };
 
       final classResponse = await http.get(
-        Uri.parse('$_baseUrl/classrooms?page=0&size=50'),
+        Uri.parse('$_baseUrl/classrooms?page=0&size=100'),
         headers: headers,
       );
 
       final sessionResponse = await http.get(
-        Uri.parse('$_baseUrl/sessions?page=0&size=50'),
+        Uri.parse('$_baseUrl/sessions?page=0&size=100'),
         headers: headers,
       );
 
-      print("CLASS STATUS: ${classResponse.statusCode}");
-      print("SESSION STATUS: ${sessionResponse.statusCode}");
-
-      // Chỉ clear token nếu API classrooms cũng 401
       if (classResponse.statusCode == 401) {
-        print("CLASS API 401 -> CLEAR TOKEN");
         await prefs.clear();
         totalClasses = 0;
         openClasses = 0;
+        teacherClasses = [];
         return;
       }
 
       if (classResponse.statusCode == 200) {
         final classData = jsonDecode(utf8.decode(classResponse.bodyBytes));
-        final List classContent = _safeList(classData);
-
-        print("CLASS CONTENT LENGTH: ${classContent.length}");
+        final List<dynamic> classContent = _safeList(classData);
 
         final myClasses = classContent.where((item) {
-          return item['teacherId']?.toString() == myTeacherId;
-        }).toList();
+          return item is Map &&
+              item['teacherId']?.toString() == myTeacherId;
+        }).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
         totalClasses = myClasses.length;
 
-        final List<String> myClassIds = myClasses
-            .map((c) => (c['id'] ?? c['classId']).toString())
-            .toList();
+        final List<String> myClassIds =
+        myClasses.map((c) => _extractClassId(c)).toList();
 
         final Set<String> uniqueOpenClasses = {};
 
-        // Nếu sessions 200 thì tính openClasses
         if (sessionResponse.statusCode == 200) {
           final sessionData = jsonDecode(utf8.decode(sessionResponse.bodyBytes));
-          final List sessionContent = _safeList(sessionData);
+          final List<dynamic> sessionContent = _safeList(sessionData);
 
-          print("SESSION CONTENT LENGTH: ${sessionContent.length}");
+          for (var raw in sessionContent) {
+            if (raw is! Map) continue;
+            final session = Map<String, dynamic>.from(raw);
 
-          for (var session in sessionContent) {
-            final status = session['status']?.toString().toUpperCase();
-
-            if (status == 'OPEN' || status == '1') {
-              final sClassId =
-                  session['classroomId']?.toString() ??
-                      session['classRoomId']?.toString() ??
-                      session['classId']?.toString() ??
-                      session['classRoom']?['id']?.toString() ??
-                      session['classRoom']?['classId']?.toString();
-
+            if (_isOpenStatus(session['status'])) {
+              final sClassId = _extractSessionClassId(session);
               if (sClassId != null && myClassIds.contains(sClassId)) {
                 uniqueOpenClasses.add(sClassId);
               }
@@ -174,22 +182,37 @@ class TeacherHomeViewModel extends ChangeNotifier {
 
           openClasses = uniqueOpenClasses.length;
         } else {
-          // sessions lỗi thì không clear token, chỉ cho openClasses = 0
-          print("⚠ SESSION API ERROR: ${sessionResponse.statusCode}");
           openClasses = 0;
         }
 
-        print("TOTAL CLASSES: $totalClasses");
-        print("OPEN CLASSES: $openClasses");
+        teacherClasses = myClasses.map((item) {
+          final classId = _extractClassId(item);
+          return {
+            'id': classId,
+            'title': item['title'] ?? 'Chưa có tên lớp',
+            'description': item['description'] ?? '',
+            'startDate': item['startDate']?.toString() ?? 'N/A',
+            'endDate': item['endDate']?.toString() ?? 'N/A',
+            'isOpen': uniqueOpenClasses.contains(classId),
+          };
+        }).toList();
+
+        teacherClasses.sort((a, b) {
+          final aOpen = a['isOpen'] == true ? 1 : 0;
+          final bOpen = b['isOpen'] == true ? 1 : 0;
+          return bOpen.compareTo(aOpen);
+        });
       } else {
-        print(" CLASS API ERROR: ${classResponse.statusCode}");
         totalClasses = 0;
         openClasses = 0;
+        teacherClasses = [];
       }
     } catch (e) {
-      print("LỖI DATA DASHBOARD: $e");
       totalClasses = 0;
       openClasses = 0;
+      teacherClasses = [];
+      teacherName = 'Teacher';
+      debugPrint('LỖI DATA DASHBOARD: $e');
     } finally {
       _isLoading = false;
       notifyListeners();

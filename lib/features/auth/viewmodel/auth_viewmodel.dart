@@ -85,6 +85,68 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
+  Future<String> sendForgotPasswordOtp(String usernameOrEmail) async {
+    try {
+      final url = Uri.parse('$_baseUrl/forgot-password/send-otp');
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'usernameOrEmail': usernameOrEmail,
+        }),
+      );
+
+      print("SEND OTP STATUS: ${response.statusCode}");
+      print("SEND OTP BODY: ${response.body}");
+
+      final Map<String, dynamic> responseData = jsonDecode(response.body);
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception(responseData['message'] ?? 'Gửi OTP thất bại');
+      }
+
+      return responseData['message'] ?? 'Đã gửi mã OTP thành công';
+    } catch (e) {
+      throw Exception(e.toString().replaceAll("Exception: ", ""));
+    }
+  }
+
+  Future<String> resetForgotPassword({
+    required String usernameOrEmail,
+    required String otp,
+    required String newPassword,
+  }) async {
+    try {
+      final url = Uri.parse('$_baseUrl/forgot-password/reset');
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'usernameOrEmail': usernameOrEmail,
+          'otp': otp,
+          'newPassword': newPassword,
+        }),
+      );
+
+      print("RESET PASSWORD STATUS: ${response.statusCode}");
+      print("RESET PASSWORD BODY: ${response.body}");
+
+      final Map<String, dynamic> responseData = jsonDecode(response.body);
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception(
+          responseData['message'] ?? 'Đặt lại mật khẩu thất bại',
+        );
+      }
+
+      return responseData['message'] ?? 'Đặt lại mật khẩu thành công';
+    } catch (e) {
+      throw Exception(e.toString().replaceAll("Exception: ", ""));
+    }
+  }
+
   Future<String?> getAccessToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('access_token');

@@ -14,12 +14,69 @@ class _CreateClassScreenState extends State<CreateClassScreen> {
   final _descController = TextEditingController();
   final _locationIdController = TextEditingController();
 
+  DateTime? _startDate;
+  DateTime? _endDate;
+
   @override
   void dispose() {
     _nameController.dispose();
     _descController.dispose();
     _locationIdController.dispose();
     super.dispose();
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return '';
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+    return '$day/$month/$year';
+  }
+
+  String _formatApiDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+    return '$year-$month-$day';
+  }
+
+  Future<void> _pickStartDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _startDate ?? now,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 10),
+    );
+
+    if (picked != null) {
+      setState(() {
+        _startDate = picked;
+
+        if (_endDate != null && _endDate!.isBefore(_startDate!)) {
+          _endDate = null;
+        }
+      });
+    }
+  }
+
+  Future<void> _pickEndDate() async {
+    final now = DateTime.now();
+    final initial = _endDate ?? _startDate ?? now;
+    final first = _startDate ?? DateTime(now.year - 1);
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: first,
+      lastDate: DateTime(now.year + 10),
+    );
+
+    if (picked != null) {
+      setState(() {
+        _endDate = picked;
+      });
+    }
   }
 
   void _showTopNotification(
@@ -97,10 +154,42 @@ class _CreateClassScreenState extends State<CreateClassScreen> {
       return;
     }
 
+    if (_startDate == null) {
+      _showTopNotification(
+        context,
+        "Vui lòng chọn ngày bắt đầu!",
+        Colors.orange,
+        Icons.date_range,
+      );
+      return;
+    }
+
+    if (_endDate == null) {
+      _showTopNotification(
+        context,
+        "Vui lòng chọn ngày kết thúc!",
+        Colors.orange,
+        Icons.date_range,
+      );
+      return;
+    }
+
+    if (_endDate!.isBefore(_startDate!)) {
+      _showTopNotification(
+        context,
+        "Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu!",
+        Colors.red,
+        Icons.error_outline,
+      );
+      return;
+    }
+
     final success = await context.read<CreateClassViewModel>().createClassAPI(
       title: name,
       description: description,
       locationIds: [locationId],
+      startDate: _formatApiDate(_startDate!),
+      endDate: _formatApiDate(_endDate!),
     );
 
     if (!mounted) return;
@@ -159,6 +248,34 @@ class _CreateClassScreenState extends State<CreateClassScreen> {
                 border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              readOnly: true,
+              onTap: _pickStartDate,
+              decoration: InputDecoration(
+                labelText: 'Ngày bắt đầu',
+                border: const OutlineInputBorder(),
+                suffixIcon: const Icon(Icons.calendar_month),
+                hintText: _startDate == null ? 'Chọn ngày bắt đầu' : null,
+              ),
+              controller: TextEditingController(
+                text: _formatDate(_startDate),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              readOnly: true,
+              onTap: _pickEndDate,
+              decoration: InputDecoration(
+                labelText: 'Ngày kết thúc',
+                border: const OutlineInputBorder(),
+                suffixIcon: const Icon(Icons.calendar_month),
+                hintText: _endDate == null ? 'Chọn ngày kết thúc' : null,
+              ),
+              controller: TextEditingController(
+                text: _formatDate(_endDate),
+              ),
             ),
             const SizedBox(height: 32),
             viewModel.isLoading

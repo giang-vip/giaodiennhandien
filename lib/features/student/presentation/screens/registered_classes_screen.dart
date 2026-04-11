@@ -75,17 +75,45 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
       body: viewModel.isLoading
           ? const Center(child: CircularProgressIndicator())
           : classes.isEmpty
-          ? const Center(child: Text("Bạn chưa đăng ký lớp học nào."))
+          ? const Center(
+        child: Text("Bạn chưa đăng ký lớp học nào hoặc chưa được duyệt."),
+      )
           : ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: classes.length,
         itemBuilder: (context, index) {
           final item = classes[index];
           final bool isActive = viewModel.isClassActive(item.id);
+          final String remainingTime =
+          viewModel.getRemainingTime(item.id);
+          final String status =
+          viewModel.getRegistrationStatus(item.id);
 
-          print(
-            "Check class ${item.id} - isActive: $isActive - sessionId: ${viewModel.getActiveSessionId(item.id)} - locationId: ${viewModel.getSessionLocationId(item.id)}",
-          );
+          final bool isAccepted = status == 'ACCEPTED';
+          final bool isPending = status == 'PENDING';
+
+          Color statusBg;
+          Color statusTextColor;
+          IconData statusIcon;
+          String statusText;
+
+          if (isAccepted) {
+            statusBg = Colors.green.withOpacity(0.10);
+            statusTextColor = Colors.green;
+            statusIcon = Icons.verified_rounded;
+            statusText = 'Đã được chấp nhận vào lớp';
+          } else if (isPending) {
+            statusBg = Colors.orange.withOpacity(0.12);
+            statusTextColor = Colors.orange;
+            statusIcon = Icons.hourglass_top_rounded;
+            statusText =
+            'Đăng ký đang chờ giảng viên / quản trị viên duyệt';
+          } else {
+            statusBg = Colors.grey.withOpacity(0.10);
+            statusTextColor = Colors.grey.shade700;
+            statusIcon = Icons.info_outline_rounded;
+            statusText = 'Trạng thái không xác định';
+          }
 
           return Card(
             elevation: 3,
@@ -107,18 +135,102 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _buildInfoRow(Icons.person, 'Giảng viên: ${item.teacherName}'),
-                  _buildInfoRow(Icons.access_time, 'Thời gian: ${item.startTime} - ${item.endTime}'),
-                  _buildInfoRow(Icons.description, 'Mô tả: ${item.description}'),
+                  _buildInfoRow(
+                    Icons.person,
+                    'Giảng viên: ${item.teacherName}',
+                  ),
+                  _buildInfoRow(
+                    Icons.access_time,
+                    'Thời gian: ${item.startTime} - ${item.endTime}',
+                  ),
+                  _buildInfoRow(
+                    Icons.description,
+                    'Mô tả: ${item.description}',
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: statusTextColor.withOpacity(0.30),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(statusIcon, color: statusTextColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            statusText,
+                            style: TextStyle(
+                              color: statusTextColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isAccepted && isActive) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.green.withOpacity(0.35),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.timer_outlined,
+                            color: Colors.green,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              remainingTime.isNotEmpty
+                                  ? 'Phiên điểm danh đang mở • Còn lại $remainingTime'
+                                  : 'Phiên điểm danh đang mở',
+                              style: const TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const Divider(height: 24),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
+                      onPressed: isAccepted
+                          ? () {
                         if (isActive) {
-                          final sessionId = viewModel.getActiveSessionId(item.id);
+                          final sessionId =
+                          viewModel.getActiveSessionId(item.id);
                           final locationId =
-                              viewModel.getSessionLocationId(item.id) ?? 0;
+                              viewModel.getSessionLocationId(
+                                item.id,
+                              ) ??
+                                  0;
 
                           Navigator.pushNamed(
                             context,
@@ -142,28 +254,39 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                             Icons.warning_amber_rounded,
                           );
                         }
-                      },
+                      }
+                          : null,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                        isActive ? Colors.green : Colors.white,
-                        foregroundColor: isActive
+                        backgroundColor: isAccepted && isActive
+                            ? Colors.green
+                            : isAccepted
                             ? Colors.white
-                            : Colors.grey.shade600,
-                        side: isActive
-                            ? BorderSide.none
-                            : BorderSide(
+                            : Colors.grey.shade300,
+                        foregroundColor: isAccepted && isActive
+                            ? Colors.white
+                            : isAccepted
+                            ? Colors.grey.shade600
+                            : Colors.grey.shade700,
+                        side: isAccepted && !isActive
+                            ? BorderSide(
                           color: Colors.grey.shade400,
                           width: 1.5,
-                        ),
+                        )
+                            : BorderSide.none,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        padding:
+                        const EdgeInsets.symmetric(vertical: 12),
                       ),
                       child: Text(
-                        isActive
-                            ? 'VÀO ĐIỂM DANH'
-                            : 'CHƯA MỞ ĐIỂM DANH',
+                        isAccepted
+                            ? (isActive
+                            ? (remainingTime.isNotEmpty
+                            ? 'VÀO ĐIỂM DANH • $remainingTime'
+                            : 'VÀO ĐIỂM DANH')
+                            : 'CHƯA MỞ ĐIỂM DANH')
+                            : 'CHỜ DUYỆT',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -175,7 +298,8 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () {
+                      onPressed: isAccepted
+                          ? () {
                         Navigator.pushNamed(
                           context,
                           AppRoutes.attendanceHistory,
@@ -184,7 +308,8 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                             'className': item.className,
                           },
                         );
-                      },
+                      }
+                          : null,
                       icon: const Icon(Icons.history),
                       label: const Text(
                         'XEM LỊCH SỬ ĐIỂM DANH',
@@ -194,15 +319,20 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(
-                          color: AppColors.primary,
+                        foregroundColor: isAccepted
+                            ? AppColors.primary
+                            : Colors.grey,
+                        side: BorderSide(
+                          color: isAccepted
+                              ? AppColors.primary
+                              : Colors.grey.shade400,
                           width: 1.5,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        padding:
+                        const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -5,34 +6,52 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/api_constants.dart';
-import 'dart:convert'; // Bổ sung để mã hóa Base64
-import '../../../core/constants/api_constants.dart';
+
 class AttendanceViewModel extends ChangeNotifier {
   final String _baseUrl = ApiConstants.baseUrl;
-  // 🛠️ THÊM URL CỦA SERVER PYTHON AI (Đổi IP 192.168.x.x thành IP máy tính của bạn)
   final String _aiBaseUrl = ApiConstants.aiBaseUrl;
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
-  // Biến lưu trữ Ảnh và Vị trí
+  bool _isCheckingLocation = false;
+  bool get isCheckingLocation => _isCheckingLocation;
+
   File? _selectedImage;
   File? get selectedImage => _selectedImage;
 
   Position? _currentPosition;
   Position? get currentPosition => _currentPosition;
 
-  // 1. LẤY VỊ TRÍ GPS TỪ ĐIỆN THOẠI
+  Map<String, double>? _classLocation;
+  double? _distanceToClass;
+  double? get distanceToClass => _distanceToClass;
+
+  double? _allowedRadius;
+  double? get allowedRadius => _allowedRadius;
+
+  bool? _isWithinAllowedArea;
+  bool? get isWithinAllowedArea => _isWithinAllowedArea;
+
+  String _locationStatusMessage = 'Đang chờ kiểm tra vị trí...';
+  String get locationStatusMessage => _locationStatusMessage;
+
+  double _toDouble(dynamic value, {double defaultValue = 0.0}) {
+    if (value == null) return defaultValue;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    return double.tryParse(value.toString()) ?? defaultValue;
+  }
+
   Future<void> fetchCurrentLocation() async {
     bool serviceEnabled;
     LocationPermission permission;
 
-    // Kiểm tra xem GPS có bật không
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       throw Exception('Vui lòng bật GPS (Vị trí) trên điện thoại.');
     }
 
-    // Kiểm tra quyền truy cập vị trí
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -42,30 +61,22 @@ class AttendanceViewModel extends ChangeNotifier {
     }
 
     if (permission == LocationPermission.deniedForever) {
-      throw Exception('Quyền vị trí bị từ chối vĩnh viễn, hãy vào Cài đặt để mở lại.');
+      throw Exception(
+        'Quyền vị trí bị từ chối vĩnh viễn, hãy vào Cài đặt để mở lại.',
+      );
     }
 
-    _isLoading = true;
+    _currentPosition = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
     notifyListeners();
-
-    try {
-      // Lấy tọa độ với độ chính xác cao nhất
-      _currentPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
   }
 
-  // 2. MỞ CAMERA TRƯỚC ĐỂ CHỤP ẢNH
   Future<void> pickImageFromCamera() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
       source: ImageSource.camera,
       preferredCameraDevice: CameraDevice.front,
-      // imageQuality: 50, // Giảm chất lượng xuống một chút
-      // // maxWidth: 800,    // THÊM DÒNG NÀY: Giới hạn chiều rộng
-      // // maxHeight: 800,   // THÊM DÒNG NÀY: Giới hạn chiều cao
     );
 
     if (pickedFile != null) {
@@ -74,49 +85,126 @@ class AttendanceViewModel extends ChangeNotifier {
     }
   }
 
-  // BỔ SUNG: HÀM LẤY TỌA ĐỘ LỚP HỌC TỪ BACKEND BẰNG LOCATION ID
-  Future<Map<String, double>> _fetchClassLocation(int locationId, String token) async {
-    print(" Đang lấy tọa độ lớp học từ locationId: $locationId...");
+  Future<Map<String, double>> _fetchClassLocation(
+      int locationId,
+      String token,
+      ) async {
     try {
-      // 1. Thử gọi với URL có chữ 's' (chuẩn RESTful thường dùng số nhiều)
       var response = await http.get(
-        Uri.parse('$_baseUrl/locations/$locationId'), // Thử URL số nhiều
+        Uri.parse('$_baseUrl/locations/$locationId'),
         headers: {'Authorization': 'Bearer $token'},
       );
 
-      // Nếu API trả về 404 (Không tìm thấy), thử gọi lại với URL không có chữ 's'
       if (response.statusCode == 404) {
         response = await http.get(
-          Uri.parse('$_baseUrl/location/$locationId'), // Thử URL số ít
+          Uri.parse('$_baseUrl/location/$locationId'),
           headers: {'Authorization': 'Bearer $token'},
         );
       }
-      print(">>> HTTP Status lấy Location: ${response.statusCode}");
-      print(">>> Nội dung trả về từ BE: ${response.body}");
+
       if (response.statusCode == 200) {
-        // Tùy theo việc Backend trả về bọc trong "data" hay trả trực tiếp
-        var responseData = jsonDecode(utf8.decode(response.bodyBytes));
+        final responseData = jsonDecode(utf8.decode(response.bodyBytes));
+        final dataObj =
+        (responseData is Map && responseData['data'] is Map<String, dynamic>)
+            ? responseData['data'] as Map<String, dynamic>
+            : Map<String, dynamic>.from(responseData);
 
-        // Kiểm tra xem Backend có bọc dữ liệu trong chữ "data" không
-        var dataObj = responseData.containsKey('data') ? responseData['data'] : responseData;
-        // Trích xuất từ JSON (LocationResponseDto)
-        double lat = responseData['latitude'] ?? 0.0;
-        double lon = responseData['longitude'] ?? 0.0;
-        double radius = responseData['radiusMeters'] ?? 50.0;
+        final double lat = _toDouble(
+          dataObj['latitude'] ?? dataObj['lat'],
+        );
+        final double lon = _toDouble(
+          dataObj['longitude'] ?? dataObj['lng'] ?? dataObj['lon'],
+        );
+        final double radius = _toDouble(
+          dataObj['radiusMeters'] ?? dataObj['radius'],
+          defaultValue: 50.0,
+        );
 
-        return {"lat": lat, "lon": lon, "radius": radius};
+        return {
+          "lat": lat,
+          "lon": lon,
+          "radius": radius <= 0 ? 50.0 : radius,
+        };
       } else {
-        throw Exception("API trả về lỗi ${response.statusCode}. Bạn kiểm tra lại đường dẫn API Location của Java nhé!");
+        throw Exception(
+          "API lấy vị trí trả về lỗi ${response.statusCode}.",
+        );
       }
     } catch (e) {
       throw Exception("Lỗi lấy tọa độ lớp: $e");
     }
   }
 
-  // ĐÃ SỬA LẠI: Truyền locationId thay vì classLat, classLon
-  Future<bool> checkIn(int sessionId, int locationId, String currentStudentId) async {
+  Future<void> prepareLocationCheck(int locationId) async {
+    if (locationId == 0) {
+      throw Exception("Buổi học này chưa được cấu hình vị trí điểm danh!");
+    }
+
+    _isCheckingLocation = true;
+    _locationStatusMessage = 'Đang lấy vị trí hiện tại và so sánh...';
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token') ?? '';
+
+      if (token.isEmpty) {
+        throw Exception("Không tìm thấy access_token. Vui lòng đăng nhập lại.");
+      }
+
+      _classLocation = await _fetchClassLocation(locationId, token);
+
+      if (_classLocation!["lat"] == 0.0 || _classLocation!["lon"] == 0.0) {
+        throw Exception("Phòng học này chưa được admin cài đặt tọa độ!");
+      }
+
+      _allowedRadius = _classLocation!["radius"] ?? 50.0;
+
+      await fetchCurrentLocation();
+
+      final distance = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        _classLocation!["lat"]!,
+        _classLocation!["lon"]!,
+      );
+
+      _distanceToClass = distance;
+      _isWithinAllowedArea = distance <= (_allowedRadius ?? 50.0);
+
+      if (_isWithinAllowedArea == true) {
+        _locationStatusMessage =
+        'Bạn đang ở đúng vị trí điểm danh.\n'
+            'Khoảng cách: ${distance.toStringAsFixed(1)} m';
+      } else {
+        _locationStatusMessage =
+        'Bạn chưa ở đúng vị trí admin đã đặt.\n'
+            'Khoảng cách hiện tại: ${distance.toStringAsFixed(1)} m';
+      }
+    } catch (e) {
+      _isWithinAllowedArea = false;
+      _distanceToClass = null;
+      _locationStatusMessage = e.toString().replaceAll("Exception: ", "");
+      rethrow;
+    } finally {
+      _isCheckingLocation = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> checkIn(
+      int sessionId,
+      int locationId,
+      String currentStudentId,
+      ) async {
     if (_selectedImage == null || _currentPosition == null) {
-      throw Exception("Vui lòng chụp ảnh khuôn mặt và Lấy vị trí GPS trước!");
+      throw Exception("Vui lòng chụp ảnh khuôn mặt trước!");
+    }
+
+    if (_isWithinAllowedArea != true) {
+      throw Exception(
+        "Bạn chưa ở đúng vị trí admin đã đặt, không thể tiếp tục điểm danh!",
+      );
     }
 
     _isLoading = true;
@@ -126,23 +214,43 @@ class AttendanceViewModel extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token') ?? '';
 
-      // ======================================================================
-      // BƯỚC 1: ĐI LẤY TỌA ĐỘ LỚP HỌC DỰA VÀO LOCATION_ID
-      // ======================================================================
-      Map<String, double> classLoc = await _fetchClassLocation(locationId, token);
+      if (token.isEmpty) {
+        throw Exception("Không tìm thấy access_token. Vui lòng đăng nhập lại.");
+      }
+
+      final classLoc =
+          _classLocation ?? await _fetchClassLocation(locationId, token);
 
       if (classLoc["lat"] == 0.0 || classLoc["lon"] == 0.0) {
         throw Exception("Phòng học này chưa được cài đặt tọa độ!");
       }
 
-      // ======================================================================
-      // BƯỚC 2: GỬI DỮ LIỆU SANG PYTHON AI
-      // ======================================================================
-      print("⏳ BƯỚC 2: Gửi dữ liệu sang AI để kiểm tra...");
-      List<int> imageBytes = await _selectedImage!.readAsBytes();
-      String base64Image = base64Encode(imageBytes);
+      final distance = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        classLoc["lat"]!,
+        classLoc["lon"]!,
+      );
 
-      var aiResponse = await http.post(
+      final radius = classLoc["radius"] ?? 50.0;
+
+      if (distance > radius) {
+        _distanceToClass = distance;
+        _allowedRadius = radius;
+        _isWithinAllowedArea = false;
+        _locationStatusMessage =
+        'Bạn đã ra ngoài khu vực điểm danh.\n'
+            'Khoảng cách hiện tại: ${distance.toStringAsFixed(1)} m';
+        notifyListeners();
+        throw Exception(
+          "Bạn không ở trong vùng điểm danh cho phép!",
+        );
+      }
+
+      final imageBytes = await _selectedImage!.readAsBytes();
+      final base64Image = base64Encode(imageBytes);
+
+      final aiResponse = await http.post(
         Uri.parse('$_aiBaseUrl/verify'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
@@ -157,37 +265,39 @@ class AttendanceViewModel extends ChangeNotifier {
       );
 
       if (aiResponse.statusCode == 200) {
-        var aiData = jsonDecode(aiResponse.body);
-        if (!aiData['isSuccess']) {
-          throw Exception(aiData['message']);
+        final aiData = jsonDecode(aiResponse.body);
+        if (aiData['isSuccess'] != true) {
+          throw Exception(aiData['message'] ?? 'AI xác thực thất bại');
         }
       } else {
-        throw Exception("Không thể kết nối AI Server (Lỗi ${aiResponse.statusCode})");
+        throw Exception(
+          "Không thể kết nối AI Server (Lỗi ${aiResponse.statusCode})",
+        );
       }
 
-      // ======================================================================
-      // BƯỚC 3: GỌI BACKEND JAVA ĐỂ LƯU ĐIỂM DANH
-      // ======================================================================
-      print("⏳ BƯỚC 3: Gửi kết quả lên Backend...");
-      var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/attendance/checkin'));
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/attendance/checkin'),
+      );
       request.headers['Authorization'] = 'Bearer $token';
-
       request.fields['sessionId'] = sessionId.toString();
       request.fields['gpsLat'] = _currentPosition!.latitude.toString();
       request.fields['gpsLng'] = _currentPosition!.longitude.toString();
 
-      var multipartFile = await http.MultipartFile.fromPath('faceImage', _selectedImage!.path);
+      final multipartFile = await http.MultipartFile.fromPath(
+        'faceImage',
+        _selectedImage!.path,
+      );
       request.files.add(multipartFile);
 
-      var response = await request.send();
-      var responseData = await response.stream.bytesToString();
+      final response = await request.send();
+      final responseData = await response.stream.bytesToString();
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
       } else {
         throw Exception("Lỗi Backend: $responseData");
       }
-
     } catch (e) {
       throw Exception(e.toString().replaceAll("Exception: ", ""));
     } finally {
@@ -199,6 +309,11 @@ class AttendanceViewModel extends ChangeNotifier {
   void clearData() {
     _selectedImage = null;
     _currentPosition = null;
+    _classLocation = null;
+    _distanceToClass = null;
+    _allowedRadius = null;
+    _isWithinAllowedArea = null;
+    _locationStatusMessage = 'Đang chờ kiểm tra vị trí...';
     notifyListeners();
   }
 }

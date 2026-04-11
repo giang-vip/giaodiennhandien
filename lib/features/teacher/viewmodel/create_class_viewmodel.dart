@@ -10,7 +10,6 @@ class CreateClassViewModel extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
-  // ================= JWT =================
   Map<String, dynamic> _decodeJwt(String token) {
     try {
       final payload = token.split('.')[1];
@@ -43,11 +42,12 @@ class CreateClassViewModel extends ChangeNotifier {
     return true;
   }
 
-  // ================= CREATE =================
   Future<bool> createClassAPI({
     required String title,
     required String description,
     required List<int> locationIds,
+    required String startDate,
+    required String endDate,
   }) async {
     try {
       _isLoading = true;
@@ -57,13 +57,13 @@ class CreateClassViewModel extends ChangeNotifier {
       final token = prefs.getString('access_token');
 
       if (token == null || token.isEmpty) {
-        print(" NO TOKEN");
+        print("NO TOKEN");
         return false;
       }
 
       final isValid = await _isTokenValid(token);
       if (!isValid) {
-        print(" TOKEN INVALID");
+        print("TOKEN INVALID");
         return false;
       }
 
@@ -71,51 +71,41 @@ class CreateClassViewModel extends ChangeNotifier {
       final sub = jwtData['sub'];
 
       if (sub == null) {
-        print(" TOKEN KHÔNG CÓ SUB");
+        print("TOKEN KHÔNG CÓ SUB");
         return false;
       }
 
       final int myTeacherId = int.tryParse(sub.toString()) ?? 0;
 
       if (myTeacherId == 0) {
-        print(" TEACHER ID INVALID");
+        print("TEACHER ID INVALID");
         return false;
       }
 
-      // ================= CALL API =================
       final response = await http.post(
         Uri.parse('$_baseUrl/classrooms'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token'
+          'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
           "teacherId": myTeacherId,
           "title": title,
           "description": description,
-          "startDate": DateTime.now()
-              .toIso8601String()
-              .split('T')[0],
-          "endDate": DateTime.now()
-              .add(const Duration(days: 90))
-              .toIso8601String()
-              .split('T')[0],
-
-          //  FIX QUAN TRỌNG NHẤT
-          "locationIds": locationIds
+          "startDate": startDate,
+          "endDate": endDate,
+          "locationIds": locationIds,
         }),
       );
 
-      // ================= DEBUG =================
       print("CREATE STATUS: ${response.statusCode}");
       print("CREATE BODY: ${response.body}");
 
-      if (response.statusCode == 200 ||
-          response.statusCode == 201) {
-        print(" CREATE SUCCESS");
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print("CREATE SUCCESS");
         return true;
       } else {
-        print(" CREATE FAIL");
+        print("CREATE FAIL");
         return false;
       }
     } catch (e) {

@@ -95,6 +95,8 @@ class _ClassListScreenState extends State<ClassListScreen> {
         itemCount: classes.length,
         itemBuilder: (context, index) {
           final item = classes[index];
+          final isFull = viewModel.isClassFull(item.id);
+          final capacityText = viewModel.getCapacityText(item.id);
 
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
@@ -127,11 +129,49 @@ class _ClassListScreenState extends State<ClassListScreen> {
                     Icons.description,
                     'Mô tả: ${item.description}',
                   ),
+                  _buildInfoRow(
+                    Icons.groups_2_outlined,
+                    capacityText,
+                  ),
+                  const SizedBox(height: 10),
+                  if (isFull)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.red.withOpacity(0.25),
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.block_rounded,
+                            color: Colors.red,
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Lớp đã đủ 75 sinh viên, không thể đăng ký thêm.',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: viewModel.isLoading
+                      onPressed: viewModel.isLoading || isFull
                           ? null
                           : () async {
                         final success = await context
@@ -142,7 +182,7 @@ class _ClassListScreenState extends State<ClassListScreen> {
 
                         if (success) {
                           _showTopNotification(
-                            'Đăng ký lớp thành công!',
+                            viewModel.lastActionMessage,
                             Colors.green,
                             Icons.check_circle,
                           );
@@ -159,22 +199,28 @@ class _ClassListScreenState extends State<ClassListScreen> {
                           );
                         } else {
                           _showTopNotification(
-                            'Lỗi đăng ký lớp! Vui lòng thử lại.',
+                            viewModel.lastActionMessage.isNotEmpty
+                                ? viewModel.lastActionMessage
+                                : 'Lỗi đăng ký lớp! Vui lòng thử lại.',
                             Colors.red,
                             Icons.error_outline,
                           );
                         }
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: isFull
+                            ? Colors.grey.shade400
+                            : AppColors.primary,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Text(
-                        'ĐĂNG KÝ NGAY',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      child: Text(
+                        isFull ? 'LỚP ĐÃ ĐẦY' : 'ĐĂNG KÝ NGAY',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
