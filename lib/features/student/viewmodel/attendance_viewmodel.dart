@@ -9,7 +9,6 @@ import '../../../core/constants/api_constants.dart';
 
 class AttendanceViewModel extends ChangeNotifier {
   final String _baseUrl = ApiConstants.baseUrl;
-  final String _aiBaseUrl = ApiConstants.aiBaseUrl;
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -37,6 +36,50 @@ class AttendanceViewModel extends ChangeNotifier {
   String _locationStatusMessage = 'Đang chờ kiểm tra vị trí...';
   String get locationStatusMessage => _locationStatusMessage;
 
+  // ===============================
+  // BASE64
+  // ===============================
+  Future<String> _imageToBase64(File imageFile) async {
+    List<int> bytes = await imageFile.readAsBytes();
+    return base64Encode(bytes);
+  }
+
+  // ===============================
+  // FACE VERIFY (🔥 QUAN TRỌNG)
+  // ===============================
+  Future<void> _verifyFace(String studentId) async {
+    final base64 = await _imageToBase64(_selectedImage!);
+
+    final response = await http.post(
+      Uri.parse(ApiConstants.faceRecognize),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({"image": base64}),
+    );
+
+    print("FACE STATUS: ${response.statusCode}");
+    print("FACE BODY: ${response.body}");
+
+    if (response.statusCode != 200) {
+      throw Exception("Lỗi AI nhận diện khuôn mặt");
+    }
+
+    final data = jsonDecode(response.body);
+
+    final name = data['name'];
+    final confidence = (data['confidence'] as num).toDouble();
+
+    print("RESULT: $name - $confidence");
+
+    if (name == "Unknown" || confidence < 0.6) {
+      throw Exception("Không nhận diện được khuôn mặt");
+    }
+
+    // 🔥 OPTIONAL: check đúng user
+    if (name.toString() != studentId) {
+      throw Exception("Khuôn mặt không khớp tài khoản");
+    }
+  }
+
   double _toDouble(dynamic value, {double defaultValue = 0.0}) {
     if (value == null) return defaultValue;
     if (value is double) return value;
@@ -44,7 +87,6 @@ class AttendanceViewModel extends ChangeNotifier {
     return double.tryParse(value.toString()) ?? defaultValue;
   }
 
-  /// 🔥 FIX: parse response linh hoạt
   Map<String, dynamic> _extractData(dynamic responseData) {
     if (responseData is Map && responseData['data'] != null) {
       return Map<String, dynamic>.from(responseData['data']);
@@ -52,11 +94,12 @@ class AttendanceViewModel extends ChangeNotifier {
     return Map<String, dynamic>.from(responseData);
   }
 
+  // ===============================
+  // LOCATION
+  // ===============================
   Future<void> fetchCurrentLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw Exception('Vui lòng bật GPS');
-    }
+    if (!serviceEnabled) throw Exception('Vui lòng bật GPS');
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -88,21 +131,15 @@ class AttendanceViewModel extends ChangeNotifier {
     }
   }
 
-  /// 🔥 FIX CỰC QUAN TRỌNG
   Future<Map<String, double>> _fetchClassLocation(
       int locationId,
       String token,
       ) async {
 
-    print("CALL API LOCATION ID = $locationId");
-
     final response = await http.get(
       Uri.parse('$_baseUrl/locations/$locationId'),
       headers: {'Authorization': 'Bearer $token'},
     );
-
-    print("STATUS: ${response.statusCode}");
-    print("BODY: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception("Không lấy được location");
@@ -115,12 +152,6 @@ class AttendanceViewModel extends ChangeNotifier {
     final lon = _toDouble(data['longitude']);
     final radius = _toDouble(data['radiusMeters'], defaultValue: 50);
 
-    print("PARSED LOCATION: lat=$lat, lon=$lon, radius=$radius");
-
-    if (lat == 0 || lon == 0) {
-      throw Exception("Location chưa có tọa độ!");
-    }
-
     return {
       "lat": lat,
       "lon": lon,
@@ -129,10 +160,6 @@ class AttendanceViewModel extends ChangeNotifier {
   }
 
   Future<void> prepareLocationCheck(int locationId) async {
-    if (locationId == 0) {
-      throw Exception("Chưa có locationId");
-    }
-
     _isCheckingLocation = true;
     notifyListeners();
 
@@ -156,36 +183,34 @@ class AttendanceViewModel extends ChangeNotifier {
       _isWithinAllowedArea = distance <= _allowedRadius!;
 
       _locationStatusMessage = _isWithinAllowedArea!
-          ? "Đúng vị trí (${distance.toStringAsFixed(1)}m)"
-          : "Sai vị trí (${distance.toStringAsFixed(1)}m)";
+          ? "Đúng vị trí"
+          : "Sai vị trí";
 
-    } catch (e) {
-      _locationStatusMessage = e.toString();
-      rethrow;
     } finally {
       _isCheckingLocation = false;
       notifyListeners();
     }
   }
 
+  // ===============================
+  // CHECK IN (🔥 UPDATED)
+  // ===============================
   Future<bool> checkIn(
       int sessionId,
       int locationId,
       String studentId,
       ) async {
 
-    if (_selectedImage == null) {
-      throw Exception("Chưa chụp ảnh");
-    }
-
-    if (_isWithinAllowedArea != true) {
-      throw Exception("Sai vị trí");
-    }
+    if (_selectedImage == null) throw Exception("Chưa chụp ảnh");
+    if (_isWithinAllowedArea != true) throw Exception("Sai vị trí");
 
     _isLoading = true;
     notifyListeners();
 
     try {
+      // 🔥 FACE VERIFY TRƯỚC
+      await _verifyFace(studentId);
+
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token') ?? '';
 

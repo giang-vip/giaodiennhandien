@@ -15,6 +15,9 @@ class ApiConstants {
     return '127.0.0.1'; // Windows desktop
   }
 
+  static String get faceRegister => '$baseUrl/face/register';
+  static String get faceRecognize => '$baseUrl/face/recognize';
+
   // API chung
   static String get baseUrl => 'http://$host:$port/api';
 
