@@ -44,9 +44,6 @@ class AttendanceViewModel extends ChangeNotifier {
     return base64Encode(bytes);
   }
 
-  // ===============================
-  // FACE VERIFY (🔥 QUAN TRỌNG)
-  // ===============================
   Future<void> _verifyFace(String studentId) async {
     final base64 = await _imageToBase64(_selectedImage!);
 
@@ -192,9 +189,6 @@ class AttendanceViewModel extends ChangeNotifier {
     }
   }
 
-  // ===============================
-  // CHECK IN (🔥 UPDATED)
-  // ===============================
   Future<bool> checkIn(
       int sessionId,
       int locationId,
@@ -208,7 +202,7 @@ class AttendanceViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 🔥 FACE VERIFY TRƯỚC
+      // FACE VERIFY TRƯỚC
       await _verifyFace(studentId);
 
       final prefs = await SharedPreferences.getInstance();

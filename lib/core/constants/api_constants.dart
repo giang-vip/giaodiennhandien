@@ -4,8 +4,8 @@ class ApiConstants {
   static const bool useAndroidEmulator = false;
   static const bool usePhysicalDevice = false;
 
-  // IP máy tính khi chạy bằng điện thoại thật
-  static const String physicalDeviceIp = '192.168.100.127';
+  // IP Wi-Fi thật của máy tính (cho điện thoại thật truy cập)
+  static const String physicalDeviceIp = '192.168.57.109';
 
   static const String port = '8081';
 
@@ -15,15 +15,16 @@ class ApiConstants {
     return '127.0.0.1'; // Windows desktop
   }
 
+  // ================= FACE APIs =================
   static String get faceRegister => '$baseUrl/face/register';
   static String get faceRecognize => '$baseUrl/face/recognize';
 
-  // API chung
+  // ================= BACKEND APIs =================
   static String get baseUrl => 'http://$host:$port/api';
 
-  // API login
+  // Login
   static String get authUrl => 'http://$host:$port/auth';
 
-  // AI service
-  static const String aiBaseUrl = 'http://192.168.65.1:8000';
+  // ================= PYTHON AI SERVICE =================
+  static const String aiBaseUrl = 'http://192.168.57.109:8000';
 }
