@@ -8,7 +8,7 @@ class AuthViewModel extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
-  final String _baseUrl = ApiConstants.authUrl;
+  final String _baseUrl = ApiConstants.authUrl;//chỗ này
 
   Future<String?> login(String username, String password) async {
     _isLoading = true;

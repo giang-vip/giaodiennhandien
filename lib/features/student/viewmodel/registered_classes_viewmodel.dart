@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../core/constants/api_constants.dart';
 import '../../../data/models/app_models.dart';
 
@@ -12,430 +13,352 @@ class RegisteredClassesViewModel extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
-  List<AppClassModel> _registeredClasses = [];
-  List<AppClassModel> get registeredClasses => _registeredClasses;
+  List<AppClassModel> _classes = [];
+  List<AppClassModel> get classes => _classes;
 
-  final Map<String, int> _activeSessions = {};
-  final Map<String, int> _sessionLocations = {};
-  final Map<String, DateTime> _sessionEndTimes = {};
-  final Map<String, String> _registrationStatuses = {};
+  // Dòng này để đồng bộ với RegisteredClassesScreen
+  List<AppClassModel> get registeredClasses => _classes;
 
-  Timer? _countdownTimer;
+  final Map<String, Map<String, dynamic>> _sessionMap = {};
+  final Map<String, String> _registrationStatus = {};
 
-  String getRegistrationStatus(String classId) {
-    return _registrationStatuses[classId] ?? 'UNKNOWN';
+  Timer? _timer;
+
+  // ================= TOKEN =================
+
+  Future<String?> _getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    return prefs.getString("access_token") ??
+        prefs.getString("token") ??
+        prefs.getString("jwt") ??
+        prefs.getString("accessToken");
   }
 
-  bool isRegistrationAccepted(String classId) {
-    return getRegistrationStatus(classId) == 'ACCEPTED';
-  }
-
-  bool isRegistrationPending(String classId) {
-    return getRegistrationStatus(classId) == 'PENDING';
-  }
-
-  bool isClassActive(String classId) {
-    if (!_activeSessions.containsKey(classId)) return false;
-
-    final endTime = _sessionEndTimes[classId];
-    if (endTime == null) return true;
-
-    return DateTime.now().isBefore(endTime);
-  }
-
-  int? getActiveSessionId(String classId) => _activeSessions[classId];
-  int? getSessionLocationId(String classId) => _sessionLocations[classId];
-
-  String getRemainingTime(String classId) {
-    final endTime = _sessionEndTimes[classId];
-    if (endTime == null) return '';
-
-    final diff = endTime.difference(DateTime.now());
-    if (diff.inSeconds <= 0) return '00:00';
-
-    final hours = diff.inHours;
-    final minutes = diff.inMinutes.remainder(60);
-    final seconds = diff.inSeconds.remainder(60);
-
-    if (hours > 0) {
-      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    }
-
-    return '${diff.inMinutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  int _getMyStudentId(String token) {
+  int _getStudentId(String token) {
     try {
       final payload = token.split('.')[1];
+
       final decoded = jsonDecode(
-        utf8.decode(base64Url.decode(base64Url.normalize(payload))),
+        utf8.decode(
+          base64Url.decode(
+            base64Url.normalize(payload),
+          ),
+        ),
       );
-      return int.parse(decoded['sub'].toString());
+
+      return int.parse(decoded["sub"].toString());
     } catch (_) {
       return 0;
     }
   }
 
-  List<dynamic> _safeList(dynamic data) {
+  List _safeList(dynamic data) {
     if (data is List) return data;
+
     if (data is Map) {
-      if (data['content'] is List) return data['content'];
-      if (data['data'] is List) return data['data'];
-      if (data['data'] is Map && data['data']['content'] is List) {
-        return data['data']['content'];
+      if (data["content"] is List) return data["content"];
+
+      if (data["data"] is List) return data["data"];
+
+      if (data["data"] is Map && data["data"]["content"] is List) {
+        return data["data"]["content"];
       }
     }
+
     return [];
   }
 
-  String _normalizeText(String input) {
-    return input.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  bool _isApprovedStatus(String? status) {
+    final s = status?.trim().toUpperCase() ?? "PENDING";
+
+    return s == "APPROVED" || s == "ACCEPTED" || s == "APPROVE";
   }
 
-  int? _parseInt(dynamic value) {
-    if (value == null) return null;
-    if (value is int) return value;
-    if (value is double) return value.toInt();
-    return int.tryParse(value.toString());
-  }
-
-  DateTime? _parseDateTime(dynamic value) {
-    if (value == null) return null;
-
-    if (value is int) {
-      if (value > 1000000000000) {
-        return DateTime.fromMillisecondsSinceEpoch(value).toLocal();
-      }
-      if (value > 1000000000) {
-        return DateTime.fromMillisecondsSinceEpoch(value * 1000).toLocal();
-      }
-    }
-
-    if (value is String) {
-      final raw = value.trim();
-      if (raw.isEmpty) return null;
-
-      final asInt = int.tryParse(raw);
-      if (asInt != null) {
-        if (asInt > 1000000000000) {
-          return DateTime.fromMillisecondsSinceEpoch(asInt).toLocal();
-        }
-        if (asInt > 1000000000) {
-          return DateTime.fromMillisecondsSinceEpoch(asInt * 1000).toLocal();
-        }
-      }
-
-      try {
-        return DateTime.parse(raw).toLocal();
-      } catch (_) {
-        return null;
-      }
-    }
-
-    return null;
-  }
-
-  DateTime? _extractSessionStartTime(Map<String, dynamic> session) {
-    const keys = [
-      'startTime',
-      'startDate',
-      'startAt',
-      'openedAt',
-      'openTime',
-      'createdAt',
-      'createdDate',
-    ];
-
-    for (final key in keys) {
-      final dt = _parseDateTime(session[key]);
-      if (dt != null) return dt;
-    }
-
-    return null;
-  }
-
-  int? _extractDurationMinutes(Map<String, dynamic> session) {
-    const keys = [
-      'durationMinutes',
-      'durationMinute',
-      'duration',
-      'attendanceDuration',
-      'attendanceDurationMinutes',
-      'expireInMinutes',
-      'remainingMinutes',
-    ];
-
-    for (final key in keys) {
-      final value = _parseInt(session[key]);
-      if (value != null && value > 0) return value;
-    }
-
-    return null;
-  }
-
-  DateTime? _extractSessionEndTime(Map<String, dynamic> session) {
-    const directKeys = [
-      'endTime',
-      'endDate',
-      'endAt',
-      'expiresAt',
-      'expiredAt',
-      'closeTime',
-      'closedAt',
-      'deadline',
-      'attendanceEndTime',
-      'attendanceEndDate',
-    ];
-
-    for (final key in directKeys) {
-      final dt = _parseDateTime(session[key]);
-      if (dt != null) return dt;
-    }
-
-    final startTime = _extractSessionStartTime(session);
-    final durationMinutes = _extractDurationMinutes(session);
-
-    if (startTime != null && durationMinutes != null) {
-      return startTime.add(Duration(minutes: durationMinutes));
-    }
-
-    return null;
-  }
-
-  void _startCountdownTimer() {
-    _countdownTimer?.cancel();
-
-    if (_sessionEndTimes.isEmpty) return;
-
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final now = DateTime.now();
-      final expiredClassIds = <String>[];
-
-      _sessionEndTimes.forEach((classId, endTime) {
-        if (!now.isBefore(endTime)) {
-          expiredClassIds.add(classId);
-        }
-      });
-
-      for (final classId in expiredClassIds) {
-        _sessionEndTimes.remove(classId);
-        _activeSessions.remove(classId);
-        _sessionLocations.remove(classId);
-      }
-
-      notifyListeners();
+  void _sortOpenClassToTop() {
+    _classes.sort((a, b) {
+      if (a.isAttendanceOpen && !b.isAttendanceOpen) return -1;
+      if (!a.isAttendanceOpen && b.isAttendanceOpen) return 1;
+      return 0;
     });
   }
+
+  // ================= FETCH =================
 
   Future<void> fetchRegisteredClasses() async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token');
+      final token = await _getToken();
 
       if (token == null || token.isEmpty) {
-        throw Exception("Không tìm thấy access_token");
+        throw Exception("No token");
       }
 
-      final myStudentId = _getMyStudentId(token);
+      final studentId = _getStudentId(token);
 
-      final myRegResponse = await http.get(
+      if (studentId == 0) {
+        throw Exception("Invalid student id from token");
+      }
+
+      final headers = {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      };
+
+      // ================= LẤY DANH SÁCH ĐĂNG KÝ CỦA SINH VIÊN =================
+
+      final regRes = await http.get(
         Uri.parse(
-          '$_baseUrl/class-registrations/$myStudentId/classes?page=0&size=100',
+          "$_baseUrl/class-registrations/$studentId/classes?page=0&size=100",
         ),
-        headers: {'Authorization': 'Bearer $token'},
+        headers: headers,
       );
+
+      if (regRes.statusCode == 401 || regRes.statusCode == 403) {
+        debugPrint("FETCH ERROR Unauthorized: ${regRes.statusCode}");
+        _timer?.cancel();
+        return;
+      }
+
+      if (regRes.statusCode != 200) {
+        throw Exception("Load registrations fail: ${regRes.statusCode}");
+      }
+
+      final regData = jsonDecode(
+        utf8.decode(regRes.bodyBytes),
+      );
+
+      final regList = _safeList(regData);
 
       final Set<String> registeredIds = {};
-      _registrationStatuses.clear();
+      _registrationStatus.clear();
 
-      if (myRegResponse.statusCode == 200) {
-        final rawRegData = jsonDecode(utf8.decode(myRegResponse.bodyBytes));
-        final List<dynamic> myRegData = _safeList(rawRegData);
+      for (var e in regList) {
+        final m = Map<String, dynamic>.from(e);
 
-        for (var item in myRegData) {
-          final cId =
-              item['classId']?.toString() ??
-                  item['classRoom']?['classId']?.toString() ??
-                  item['classroomId']?.toString() ??
-                  item['classRoom']?['id']?.toString() ??
-                  '0';
+        final id = m["classId"]?.toString() ??
+            m["classroomId"]?.toString() ??
+            m["id"]?.toString() ??
+            "";
 
-          final status =
-              item['status']?.toString().toUpperCase().trim() ?? 'PENDING';
+        if (id.isEmpty) continue;
 
-          if (status == 'PENDING' || status == 'ACCEPTED') {
-            registeredIds.add(cId);
-            _registrationStatuses[cId] = status;
-          }
-        }
-      } else if (myRegResponse.statusCode == 401) {
-        throw Exception("Token hết hạn khi lấy lớp đã đăng ký");
-      } else {
-        throw Exception("Không lấy được lớp đã đăng ký");
+        // QUAN TRỌNG:
+        // Nếu backend không trả status thì mặc định là PENDING,
+        // tuyệt đối không tự coi là đã duyệt.
+        final status = m["status"]?.toString().toUpperCase() ?? "PENDING";
+
+        registeredIds.add(id);
+        _registrationStatus[id] = status;
       }
 
-      final classResponse = await http.get(
-        Uri.parse('$_baseUrl/classrooms?page=0&size=100'),
-        headers: {'Authorization': 'Bearer $token'},
+      // ================= LẤY THÔNG TIN LỚP =================
+
+      final classRes = await http.get(
+        Uri.parse("$_baseUrl/classrooms?page=0&size=100"),
+        headers: headers,
       );
 
-      _registeredClasses = [];
+      if (classRes.statusCode == 401 || classRes.statusCode == 403) {
+        debugPrint("FETCH ERROR Unauthorized classrooms: ${classRes.statusCode}");
+        _timer?.cancel();
+        return;
+      }
 
-      if (classResponse.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(classResponse.bodyBytes));
-        final List<dynamic> classContent = _safeList(data);
+      if (classRes.statusCode != 200) {
+        throw Exception("Load classrooms fail: ${classRes.statusCode}");
+      }
 
-        _registeredClasses = classContent.where((item) {
-          final checkId =
-              item['classId']?.toString() ?? item['id']?.toString() ?? '0';
-          return registeredIds.contains(checkId);
-        }).map((item) {
-          final locationIds = item['locationIds'];
-          String? roomId;
-          if (locationIds is List && locationIds.isNotEmpty) {
-            roomId = locationIds.first.toString();
+      final classData = jsonDecode(
+        utf8.decode(classRes.bodyBytes),
+      );
+
+      final allClasses = _safeList(classData);
+
+      _classes = [];
+
+      for (var e in allClasses) {
+        final m = Map<String, dynamic>.from(e);
+
+        final id = m["classId"]?.toString() ??
+            m["id"]?.toString() ??
+            "";
+
+        if (id.isEmpty) continue;
+        if (!registeredIds.contains(id)) continue;
+
+        _classes.add(
+          AppClassModel(
+            id: id,
+            className: m["title"]?.toString() ?? "Chưa có tên lớp",
+            teacherName: m["teacherName"]?.toString() ?? "Chưa có giảng viên",
+            description: m["description"]?.toString() ?? "Không có mô tả",
+            teacherId: m["teacherId"]?.toString() ?? "",
+            startTime: m["startDate"]?.toString() ?? "-",
+            endTime: m["endDate"]?.toString() ?? "-",
+            isAttendanceOpen: false,
+          ),
+        );
+      }
+
+      // ================= LẤY SESSION ĐIỂM DANH ĐANG MỞ =================
+
+      _sessionMap.clear();
+
+      final sessionRes = await http.get(
+        Uri.parse("$_baseUrl/sessions"),
+        headers: headers,
+      );
+
+      if (sessionRes.statusCode == 200) {
+        final sessionData = jsonDecode(
+          utf8.decode(sessionRes.bodyBytes),
+        );
+
+        final sessions = _safeList(sessionData);
+
+        for (var s in sessions) {
+          final sm = Map<String, dynamic>.from(s);
+
+          final sessionStatus = sm["status"]?.toString().toUpperCase() ?? "";
+
+          if (sessionStatus != "OPEN") continue;
+
+          final classId = sm["classId"]?.toString() ??
+              sm["classroomId"]?.toString() ??
+              "";
+
+          if (classId.isNotEmpty) {
+            _sessionMap[classId] = sm;
           }
+        }
+      }
 
-          return AppClassModel(
-            id: item['classId']?.toString() ?? item['id']?.toString() ?? '0',
-            teacherId: item['teacherId']?.toString() ?? '0',
-            className: item['title'] ?? 'Chưa có tên',
-            description: item['description'] ?? 'Chưa có mô tả',
-            teacherName: item['teacherName'] ?? 'Giảng viên',
-            startTime: item['startDate']?.toString() ?? 'N/A',
-            endTime: item['endDate']?.toString() ?? 'N/A',
-            roomId: roomId,
+      // ================= CHỐT LOGIC ĐỒNG BỘ VỚI SCREEN =================
+      // Chỉ khi:
+      // 1. Admin đã duyệt: APPROVED / ACCEPTED
+      // 2. Giáo viên đã mở session điểm danh
+      // thì nút mới xanh và cho vào điểm danh.
+
+      for (int i = 0; i < _classes.length; i++) {
+        final c = _classes[i];
+        final status = _registrationStatus[c.id] ?? "PENDING";
+        final hasOpenSession = _sessionMap.containsKey(c.id);
+
+        if (_isApprovedStatus(status) && hasOpenSession) {
+          final s = _sessionMap[c.id]!;
+
+          _classes[i] = c.copyWith(
+            isAttendanceOpen: true,
+            attendanceStartTime: s["startTime"]?.toString(),
+            attendanceEndTime: s["endTime"]?.toString(),
           );
-        }).toList();
-
-        _registeredClasses.sort((a, b) {
-          final sa = getRegistrationStatus(a.id);
-          final sb = getRegistrationStatus(b.id);
-
-          int order(String s) {
-            switch (s) {
-              case 'ACCEPTED':
-                return 0;
-              case 'PENDING':
-                return 1;
-              default:
-                return 2;
-            }
-          }
-
-          return order(sa).compareTo(order(sb));
-        });
-      } else if (classResponse.statusCode == 401) {
-        throw Exception("Token hết hạn khi lấy danh sách lớp");
-      }
-
-      _activeSessions.clear();
-      _sessionLocations.clear();
-      _sessionEndTimes.clear();
-
-      final sessionResponse = await http.get(
-        Uri.parse('$_baseUrl/sessions?page=0&size=100'),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-
-      if (sessionResponse.statusCode == 200) {
-        final sessionData = jsonDecode(utf8.decode(sessionResponse.bodyBytes));
-        final List<dynamic> content = _safeList(sessionData);
-
-        for (var rawSession in content) {
-          if (rawSession is! Map) continue;
-          final session = Map<String, dynamic>.from(rawSession);
-
-          final status = session['status']?.toString().toUpperCase();
-          if (status != 'OPEN' &&
-              status != '1' &&
-              status != 'ACTIVE' &&
-              status != 'ONGOING') {
-            continue;
-          }
-
-          String? sClassId =
-              session['classroomId']?.toString() ??
-                  session['classRoomId']?.toString() ??
-                  session['classId']?.toString() ??
-                  session['classRoom']?['id']?.toString() ??
-                  session['classRoom']?['classId']?.toString() ??
-                  session['classroom']?['id']?.toString() ??
-                  session['classroom']?['classId']?.toString();
-
-          final sId = session['sessionId'] ?? session['id'];
-          final locId = session['locationId'];
-          final sessionTitle =
-          _normalizeText((session['title'] ?? '').toString());
-
-          if (sClassId == null || sClassId.isEmpty || sClassId == 'null') {
-            for (final c in _registeredClasses) {
-              final expectedTitle = _normalizeText("Attendance - ${c.className}");
-              if (sessionTitle == expectedTitle) {
-                sClassId = c.id;
-                break;
-              }
-            }
-          }
-
-          if ((sClassId == null || sClassId.isEmpty || sClassId == 'null') &&
-              locId != null) {
-            final candidates = _registeredClasses
-                .where((c) => c.roomId == locId.toString())
-                .toList();
-
-            if (candidates.length == 1) {
-              sClassId = candidates.first.id;
-            }
-          }
-
-          final endTime = _extractSessionEndTime(session);
-
-          if (endTime != null && !DateTime.now().isBefore(endTime)) {
-            continue;
-          }
-
-          if (sClassId != null &&
-              sClassId.isNotEmpty &&
-              sClassId != 'null' &&
-              sId != null) {
-            _activeSessions[sClassId] = int.tryParse(sId.toString()) ?? 0;
-
-            if (locId != null) {
-              _sessionLocations[sClassId] =
-                  int.tryParse(locId.toString()) ?? 0;
-            }
-
-            if (endTime != null) {
-              _sessionEndTimes[sClassId] = endTime;
-            }
-          }
+        } else {
+          _classes[i] = c.copyWith(
+            isAttendanceOpen: false,
+            attendanceStartTime: null,
+            attendanceEndTime: null,
+          );
         }
-      } else if (sessionResponse.statusCode == 401) {
-        throw Exception("Token hết hạn khi lấy phiên điểm danh");
       }
 
-      _startCountdownTimer();
+      _sortOpenClassToTop();
+      _startRefresh();
     } catch (e) {
-      _registeredClasses = [];
-      _activeSessions.clear();
-      _sessionLocations.clear();
-      _sessionEndTimes.clear();
-      _registrationStatuses.clear();
-      _countdownTimer?.cancel();
-      debugPrint("LỖI MY CLASSES: $e");
+      debugPrint("FETCH ERROR $e");
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
+  void _startRefresh() {
+    _timer?.cancel();
+
+    _timer = Timer.periodic(
+      const Duration(seconds: 5),
+          (_) {
+        fetchRegisteredClasses();
+      },
+    );
+  }
+
+  // ================= UI SUPPORT =================
+
+  String getRegistrationStatus(String classId) {
+    return _registrationStatus[classId] ?? "PENDING";
+  }
+
+  bool isRegistrationApproved(String classId) {
+    return _isApprovedStatus(_registrationStatus[classId]);
+  }
+
+  String getRegistrationStatusText(String classId) {
+    final status = getRegistrationStatus(classId).toUpperCase();
+
+    if (_isApprovedStatus(status)) {
+      return "Đã được chấp nhận vào lớp";
+    }
+
+    if (status == "REJECTED" || status == "DECLINED") {
+      return "Đăng ký lớp đã bị từ chối";
+    }
+
+    return "Đang chờ admin duyệt";
+  }
+
+  bool isClassActive(String classId) {
+    return _classes.any(
+          (e) => e.id == classId && e.isAttendanceOpen,
+    );
+  }
+
+  dynamic getActiveSessionId(String classId) {
+    return _sessionMap[classId]?["id"];
+  }
+
+  int? getSessionLocationId(String classId) {
+    final value = _sessionMap[classId]?["locationId"];
+
+    if (value == null) return null;
+    if (value is int) return value;
+
+    return int.tryParse(value.toString());
+  }
+
+  String getRemainingTime(String classId) {
+    final index = _classes.indexWhere((e) => e.id == classId);
+
+    if (index == -1) return "";
+
+    final c = _classes[index];
+    final end = c.attendanceEndDateTime;
+
+    if (end == null) return "";
+
+    final diff = end.difference(DateTime.now());
+
+    if (diff.inSeconds <= 0) return "";
+
+    return "${diff.inMinutes}:${(diff.inSeconds % 60).toString().padLeft(2, '0')}";
+  }
+
+  String getRemainingText(AppClassModel c) {
+    if (!c.isAttendanceOpen) {
+      return "Chưa mở";
+    }
+
+    final t = getRemainingTime(c.id);
+
+    return t.isEmpty ? "Đang mở" : "Còn lại $t";
+  }
+
   @override
   void dispose() {
-    _countdownTimer?.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 }

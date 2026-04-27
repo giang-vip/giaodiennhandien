@@ -51,7 +51,6 @@ class AttendanceRemoteDataSource {
         return list.map((e) => AppClassModel.fromJson(e)).toList();
       }
 
-      // 🔥 QUAN TRỌNG: phân biệt lỗi rõ ràng
       else if (response.statusCode == 401) {
         throw Exception("401 - Token sai hoặc hết hạn");
       } else {

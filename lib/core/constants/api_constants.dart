@@ -1,11 +1,11 @@
 class ApiConstants {
   // ================= CHỌN 1 CHẾ ĐỘ =================
-  static const bool useWindowsDesktop = false;
+  static const bool useWindowsDesktop = true;
   static const bool useAndroidEmulator = false;
-  static const bool usePhysicalDevice = true;
+  static const bool usePhysicalDevice = false;
 
-  // IP máy tính khi chạy bằng điện thoại thật
-  static const String physicalDeviceIp = '192.168.1.197';
+  // IP Wi-Fi thật của máy tính (cho điện thoại thật truy cập)
+  static const String physicalDeviceIp = '192.168.57.109';
 
   static const String port = '8081';
 
@@ -15,13 +15,16 @@ class ApiConstants {
     return '127.0.0.1'; // Windows desktop
   }
 
-  // API chung
+  // ================= FACE APIs =================
+  static String get faceRegister => '$baseUrl/face/register';
+  static String get faceRecognize => '$baseUrl/face/recognize';
+
+  // ================= BACKEND APIs =================
   static String get baseUrl => 'http://$host:$port/api';
 
-  // API login
+  // Login
   static String get authUrl => 'http://$host:$port/auth';
 
-  // AI service
-  static const String aiBaseUrl = 'https://unmethodical-valentina-obscuredly.ngrok-free.dev';
-  // https://unmethodical-valentina-obscuredly.ngrok-free.dev
+  // ================= PYTHON AI SERVICE =================
+  static const String aiBaseUrl = 'http://192.168.57.109:8000';
 }
