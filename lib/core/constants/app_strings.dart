@@ -8,7 +8,7 @@ class AppStrings {
   static const String teacher = 'Teacher';
   static const String logout = 'Logout';
   
-  static const String studentHome = 'Student Dashboard';
+  static const String studentHome = 'Student';
   static const String availableClasses = 'Available Classes';
   static const String registeredClasses = 'Registered Classes';
   static const String takeAttendance = 'Take Attendance';

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -21,8 +20,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
   final Map<String, Map<String, dynamic>> _sessionMap = {};
   final Map<String, String> _registrationStatus = {};
-
-  Timer? _timer;
 
   // ================= TOKEN =================
 
@@ -119,7 +116,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
       if (regRes.statusCode == 401 || regRes.statusCode == 403) {
         debugPrint("FETCH ERROR Unauthorized: ${regRes.statusCode}");
-        _timer?.cancel();
         return;
       }
 
@@ -146,7 +142,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
         if (id.isEmpty) continue;
 
-        // QUAN TRỌNG:
         // Nếu backend không trả status thì mặc định là PENDING,
         // tuyệt đối không tự coi là đã duyệt.
         final status = m["status"]?.toString().toUpperCase() ?? "PENDING";
@@ -164,7 +159,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
       if (classRes.statusCode == 401 || classRes.statusCode == 403) {
         debugPrint("FETCH ERROR Unauthorized classrooms: ${classRes.statusCode}");
-        _timer?.cancel();
         return;
       }
 
@@ -235,13 +229,13 @@ class RegisteredClassesViewModel extends ChangeNotifier {
             _sessionMap[classId] = sm;
           }
         }
-        // xem toàn bộ dữ liệu sessionMap
+
         debugPrint("SessionMap: $_sessionMap");
       }
 
       // ================= CHỐT LOGIC ĐỒNG BỘ VỚI SCREEN =================
       // Chỉ khi:
-      // 1. Admin đã duyệt: APPROVED / ACCEPTED
+      // 1. Admin đã duyệt: APPROVED / ACCEPTED / APPROVE
       // 2. Giáo viên đã mở session điểm danh
       // thì nút mới xanh và cho vào điểm danh.
 
@@ -268,24 +262,12 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       }
 
       _sortOpenClassToTop();
-      _startRefresh();
     } catch (e) {
       debugPrint("FETCH ERROR $e");
     } finally {
       _isLoading = false;
       notifyListeners();
     }
-  }
-
-  void _startRefresh() {
-    _timer?.cancel();
-
-    _timer = Timer.periodic(
-      const Duration(seconds: 5),
-          (_) {
-        fetchRegisteredClasses();
-      },
-    );
   }
 
   // ================= UI SUPPORT =================
@@ -360,7 +342,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
-    _timer?.cancel();
     super.dispose();
   }
 }
+

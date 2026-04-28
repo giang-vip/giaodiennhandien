@@ -73,7 +73,7 @@ class AttendanceViewModel extends ChangeNotifier {
     //   throw Exception("Không nhận diện được khuôn mặt");
     // }
     //
-    // // 🔥 OPTIONAL: check đúng user
+
     // if (name.toString() != studentId) {
     //   throw Exception("Khuôn mặt không khớp tài khoản");
     // }
@@ -86,7 +86,7 @@ class AttendanceViewModel extends ChangeNotifier {
       //   throw Exception(aiData['message']);
       // }
       if (isSuccess) {
-        // ✅ Thành công
+
         // Ví dụ hiển thị SnackBar
         // ScaffoldMessenger.of(context).showSnackBar(
         //   SnackBar(content: Text(aiData['message']))

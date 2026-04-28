@@ -1,25 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../app/app_routes.dart';
+import '../../../../core/constants/app_colors.dart';
 import '../../viewmodel/teacher_viewmodel.dart';
 
-// ĐÃ ĐỔI THÀNH STATEFUL WIDGET
 class AttendanceStatisticsScreen extends StatefulWidget {
   const AttendanceStatisticsScreen({super.key});
 
   @override
-  State<AttendanceStatisticsScreen> createState() => _AttendanceStatisticsScreenState();
+  State<AttendanceStatisticsScreen> createState() =>
+      _AttendanceStatisticsScreenState();
 }
 
 class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen> {
-
   @override
   void initState() {
     super.initState();
-    // BÍ QUYẾT LÀ ĐÂY: Tự động gọi API lấy 5 lớp về ngay khi mở màn hình
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<TeacherViewModel>().fetchClasses();
     });
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.redAccent,
+          margin: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
   }
 
   @override
@@ -28,38 +58,133 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
     final classes = viewModel.realClasses;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Select Class for Statistics')),
-      // Thêm vòng xoay loading cho đẹp trong lúc đợi tải 5 lớp
+      backgroundColor: const Color(0xFFF5F7FB),
+      appBar: AppBar(
+        title: const Text(
+          'Thống kê điểm danh',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Tải lại danh sách lớp',
+            onPressed: viewModel.isLoading
+                ? null
+                : () {
+              context.read<TeacherViewModel>().fetchClasses();
+            },
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
       body: viewModel.isLoading
           ? const Center(child: CircularProgressIndicator())
           : classes.isEmpty
-          ? const Center(child: Text('No classes found.'))
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: classes.length,
-        itemBuilder: (context, index) {
-          final item = classes[index];
-          return Card(
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: const CircleAvatar(child: Icon(Icons.class_)),
-              title: Text(item.className, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('Time: ${item.startTime} - ${item.endTime}'),
-              trailing: const Icon(Icons.analytics_outlined, color: Colors.blue),
-              onTap: () {
-                // Chuyển sang màn Thống kê kèm ID Lớp
-                Navigator.pushNamed(
-                  context,
-                  AppRoutes.studentStats,
-                  arguments: {
-                    'className': item.className,
-                    'classId': item.id,
-                  },
-                );
-              },
-            ),
-          );
+          ? const Center(
+        child: Text(
+          'Không tìm thấy lớp nào.',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+      )
+          : RefreshIndicator(
+        onRefresh: () async {
+          await context.read<TeacherViewModel>().fetchClasses();
         },
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: classes.length,
+          itemBuilder: (context, index) {
+            final item = classes[index];
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 14,
+                ),
+                leading: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.analytics_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: Text(
+                  item.className,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Mã lớp: ${item.id}',
+                        style: TextStyle(
+                          color: item.id == '0'
+                              ? Colors.redAccent
+                              : Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Thời gian: ${item.startTime} - ${item.endTime}',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                trailing: const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+                onTap: () {
+                  final classId = item.id.trim();
+
+                  if (classId.isEmpty || classId == '0') {
+                    _showError(
+                      'Lỗi mã lớp = 0. Cần sửa TeacherViewModel để lấy đúng id/classId từ backend.',
+                    );
+                    return;
+                  }
+
+                  Navigator.pushNamed(
+                    context,
+                    AppRoutes.studentStats,
+                    arguments: {
+                      'className': item.className,
+                      'classId': classId,
+                    },
+                  );
+                },
+              ),
+            );
+          },
+        ),
       ),
     );
   }

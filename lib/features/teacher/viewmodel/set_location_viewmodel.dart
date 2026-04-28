@@ -49,35 +49,23 @@ class SetLocationViewModel extends ChangeNotifier {
         headers: {'Authorization': 'Bearer $token'},
       );
 
-      print("LOCATION STATUS: ${response.statusCode}");
-      print("LOCATION BODY: ${response.body}");
-
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         final List content = _safeList(data);
 
         _realLocations = content.map((item) {
           return RoomModel(
-            id: item['locationId']?.toString() ??
-                item['id']?.toString() ??
-                '0',
-            name:
-            '${item['locationCode'] ?? 'Phòng'} - ${item['address'] ?? ''}',
-            latitude:
-            (item['latitude'] as num?)?.toDouble() ?? 21.028511,
-            longitude:
-            (item['longitude'] as num?)?.toDouble() ?? 105.804817,
-            defaultRadius:
-            (item['radiusMeters'] as num?)?.toDouble() ?? 50.0,
+            id: item['locationId']?.toString() ?? item['id']?.toString() ?? '0',
+            name: '${item['locationCode'] ?? 'Phòng'} - ${item['address'] ?? ''}',
+            latitude: (item['latitude'] as num?)?.toDouble() ?? 21.028511,
+            longitude: (item['longitude'] as num?)?.toDouble() ?? 105.804817,
+            defaultRadius: (item['radiusMeters'] as num?)?.toDouble() ?? 50.0,
           );
         }).toList();
-      } else if (response.statusCode == 401) {
-        throw Exception("Token không hợp lệ hoặc đã hết hạn");
       } else {
-        throw Exception("Không lấy được danh sách phòng học");
+        _realLocations = [];
       }
     } catch (e) {
-      print("LỖI LẤY DANH SÁCH PHÒNG HỌC: $e");
       _realLocations = [];
     } finally {
       _isLoading = false;
@@ -109,8 +97,7 @@ class SetLocationViewModel extends ChangeNotifier {
       }
 
       if (permission == LocationPermission.deniedForever) {
-        _locationError =
-        "Quyền vị trí bị từ chối vĩnh viễn. Hãy bật lại trong cài đặt máy";
+        _locationError = "Quyền vị trí bị từ chối vĩnh viễn";
         return false;
       }
 
@@ -119,15 +106,9 @@ class SetLocationViewModel extends ChangeNotifier {
       );
 
       _currentPosition = position;
-
-      print(
-        "CURRENT LOCATION: lat=${position.latitude}, lng=${position.longitude}",
-      );
-
       return true;
     } catch (e) {
-      _locationError = "Không lấy được vị trí hiện tại: $e";
-      print("LỖI LẤY VỊ TRÍ HIỆN TẠI: $e");
+      _locationError = "Không lấy được vị trí";
       return false;
     } finally {
       _isGettingCurrentLocation = false;
