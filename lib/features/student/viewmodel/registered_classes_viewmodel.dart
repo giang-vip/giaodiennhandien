@@ -235,6 +235,8 @@ class RegisteredClassesViewModel extends ChangeNotifier {
             _sessionMap[classId] = sm;
           }
         }
+        // xem toàn bộ dữ liệu sessionMap
+        debugPrint("SessionMap: $_sessionMap");
       }
 
       // ================= CHỐT LOGIC ĐỒNG BỘ VỚI SCREEN =================
@@ -317,7 +319,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
   }
 
   dynamic getActiveSessionId(String classId) {
-    return _sessionMap[classId]?["id"];
+    return _sessionMap[classId]?["sessionId"];
   }
 
   int? getSessionLocationId(String classId) {
