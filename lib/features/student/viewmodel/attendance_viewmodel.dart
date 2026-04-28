@@ -50,7 +50,9 @@ class AttendanceViewModel extends ChangeNotifier {
     final response = await http.post(
       Uri.parse(ApiConstants.faceRecognize),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({"image": base64}),
+      body: jsonEncode({"image": base64,
+        "studentId": studentId,   // thêm dòng này
+      }),
     );
 
     print("FACE STATUS: ${response.statusCode}");
@@ -60,20 +62,40 @@ class AttendanceViewModel extends ChangeNotifier {
       throw Exception("Lỗi AI nhận diện khuôn mặt");
     }
 
-    final data = jsonDecode(response.body);
-
-    final name = data['name'];
-    final confidence = (data['confidence'] as num).toDouble();
-
-    print("RESULT: $name - $confidence");
-
-    if (name == "Unknown" || confidence < 0.6) {
-      throw Exception("Không nhận diện được khuôn mặt");
-    }
-
-    // 🔥 OPTIONAL: check đúng user
-    if (name.toString() != studentId) {
-      throw Exception("Khuôn mặt không khớp tài khoản");
+    // final data = jsonDecode(response.body);
+    //
+    // final name = data['name'];
+    // final confidence = (data['confidence'] as num).toDouble();
+    //
+    // print("RESULT: $name - $confidence");
+    //
+    // if (name == "Unknown" || confidence < 0.6) {
+    //   throw Exception("Không nhận diện được khuôn mặt");
+    // }
+    //
+    // // 🔥 OPTIONAL: check đúng user
+    // if (name.toString() != studentId) {
+    //   throw Exception("Khuôn mặt không khớp tài khoản");
+    // }
+    if (response.statusCode == 200) {
+      var aiData = jsonDecode(response.body);
+      bool isSuccess = aiData['isSuccess'] == true;
+      // if (!aiData['isSuccess']) {
+      //là sao nhẻ
+      // if (!isSuccess) {
+      //   throw Exception(aiData['message']);
+      // }
+      if (isSuccess) {
+        // ✅ Thành công
+        // Ví dụ hiển thị SnackBar
+        // ScaffoldMessenger.of(context).showSnackBar(
+        //   SnackBar(content: Text(aiData['message']))
+        // );
+      } else {
+        throw Exception(aiData['message']);
+      }
+    } else {
+      throw Exception("Không thể kết nối AI Server (Lỗi ${response .statusCode})");
     }
   }
 
@@ -217,6 +239,9 @@ class AttendanceViewModel extends ChangeNotifier {
       request.fields['sessionId'] = sessionId.toString();
       request.fields['gpsLat'] = _currentPosition!.latitude.toString();
       request.fields['gpsLng'] = _currentPosition!.longitude.toString();
+      print("CheckIn sessionId: $sessionId");
+      print("GPS: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}");
+
 
       request.files.add(await http.MultipartFile.fromPath(
         'faceImage',
