@@ -18,8 +18,6 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
   List<AttendanceRecordModel> _history = [];
   List<AttendanceRecordModel> get history => _history;
 
-  // ================= THỐNG KÊ =================
-
   int get totalSessions => _history.length;
 
   int get totalPresent =>
@@ -36,8 +34,6 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
   String get percentageText => '${percentage.toStringAsFixed(0)}%';
 
   bool get hasData => _history.isNotEmpty;
-
-  // ================= TOKEN =================
 
   Map<String, dynamic> _decodeJwt(String token) {
     try {
@@ -116,8 +112,6 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     return null;
   }
 
-  // ================= DATA HELPER =================
-
   List<dynamic> _safeList(dynamic data) {
     if (data is List) return data;
 
@@ -170,7 +164,7 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     final text = value.toString().trim();
     if (text.isEmpty) return null;
 
-    return DateTime.tryParse(text);
+    return DateTime.tryParse(text)?.toLocal();
   }
 
   String _formatDate(DateTime? dateTime) {
@@ -195,6 +189,8 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
   String _getSessionId(Map<String, dynamic> item, String fallback) {
     return item['attendanceSessionId']?.toString() ??
         item['sessionId']?.toString() ??
+        item['session']?['id']?.toString() ??
+        item['attendanceSession']?['id']?.toString() ??
         item['recordId']?.toString() ??
         item['id']?.toString() ??
         fallback;
@@ -203,14 +199,24 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
   String? _getRecordClassId(Map<String, dynamic> item) {
     return item['classId']?.toString() ??
         item['classroomId']?.toString() ??
+        item['classRoomId']?.toString() ??
+        item['roomId']?.toString() ??
         item['classroom']?['id']?.toString() ??
-        item['class']?['id']?.toString();
+        item['classroom']?['classId']?.toString() ??
+        item['class']?['id']?.toString() ??
+        item['class']?['classId']?.toString() ??
+        item['session']?['classId']?.toString() ??
+        item['session']?['classroomId']?.toString() ??
+        item['attendanceSession']?['classId']?.toString() ??
+        item['attendanceSession']?['classroomId']?.toString();
   }
 
   DateTime? _getRecordDateTime(Map<String, dynamic> item) {
     return _parseDateTime(
       item['checkinTime'] ??
           item['checkInTime'] ??
+          item['checkedInAt'] ??
+          item['attendanceTime'] ??
           item['createdAt'] ??
           item['createAt'] ??
           item['date'] ??
@@ -227,7 +233,87 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     );
   }
 
-  // ================= FETCH HISTORY =================
+  String? _getSessionClassId(Map<String, dynamic> session) {
+    return session['classId']?.toString() ??
+        session['classroomId']?.toString() ??
+        session['classRoomId']?.toString() ??
+        session['classroom']?['id']?.toString() ??
+        session['classroom']?['classId']?.toString() ??
+        session['class']?['id']?.toString() ??
+        session['class']?['classId']?.toString();
+  }
+
+  String? _getSessionKey(Map<String, dynamic> session) {
+    return session['attendanceSessionId']?.toString() ??
+        session['sessionId']?.toString() ??
+        session['id']?.toString();
+  }
+
+  Future<Map<String, String>> _fetchSessionClassMap({
+    required Map<String, String> headers,
+  }) async {
+    final Map<String, String> sessionClassMap = {};
+
+    try {
+      final url = Uri.parse('$_baseUrl/sessions');
+      final response = await http.get(url, headers: headers);
+
+      debugPrint('================= SESSION MAP API =================');
+      debugPrint('URL: $url');
+      debugPrint('STATUS: ${response.statusCode}');
+      debugPrint('===================================================');
+
+      if (response.statusCode != 200) return sessionClassMap;
+
+      final bodyText = utf8.decode(response.bodyBytes);
+      final data = jsonDecode(bodyText);
+      final sessions = _safeList(data);
+
+      for (final raw in sessions) {
+        if (raw is! Map) continue;
+
+        final session = Map<String, dynamic>.from(raw);
+        final sessionId = _getSessionKey(session);
+        final sessionClassId = _getSessionClassId(session);
+
+        if (sessionId == null || sessionId.isEmpty) continue;
+        if (sessionClassId == null || sessionClassId.isEmpty) continue;
+
+        sessionClassMap[sessionId] = sessionClassId;
+      }
+    } catch (e) {
+      debugPrint('Không lấy được session map: $e');
+    }
+
+    return sessionClassMap;
+  }
+
+  bool _isRecordOfCurrentClass({
+    required Map<String, dynamic> item,
+    required String targetClassId,
+    required Map<String, String> sessionClassMap,
+    required String fallbackSessionId,
+  }) {
+    if (targetClassId == '0' || targetClassId.trim().isEmpty) return true;
+
+    final recordClassId = _getRecordClassId(item);
+
+    if (recordClassId != null && recordClassId.isNotEmpty) {
+      return recordClassId == targetClassId;
+    }
+
+    final sessionId = _getSessionId(item, fallbackSessionId);
+    final mappedClassId = sessionClassMap[sessionId];
+
+    if (mappedClassId != null && mappedClassId.isNotEmpty) {
+      return mappedClassId == targetClassId;
+    }
+
+    // FIX QUAN TRỌNG:
+    // Nếu record không có classId và cũng không map được sessionId sang classId
+    // thì KHÔNG được đưa vào mọi lớp nữa, vì sẽ làm tất cả lớp thống kê giống nhau.
+    return false;
+  }
 
   Future<void> fetchHistory(String classId) async {
     _isLoading = true;
@@ -250,12 +336,14 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
         'Accept': 'application/json',
       };
 
-      // USER thường chỉ được xem lịch sử của chính mình qua endpoint /me.
-      // Không dùng /attendance/user/{id} vì endpoint đó chỉ dành cho ADMIN / LEADER.
+      final sessionClassMap = await _fetchSessionClassMap(headers: headers);
+
       final url = Uri.parse('$_baseUrl/attendance/user/me');
 
       debugPrint('================= ATTENDANCE HISTORY API =================');
       debugPrint('URL: $url');
+      debugPrint('CLASS ID FILTER: $classId');
+      debugPrint('SESSION MAP SIZE: ${sessionClassMap.length}');
       debugPrint('TOKEN START: ${token.length > 20 ? token.substring(0, 20) : token}...');
 
       final response = await http.get(url, headers: headers);
@@ -284,14 +372,6 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
         if (raw is! Map) continue;
 
         final item = Map<String, dynamic>.from(raw);
-        final recordClassId = _getRecordClassId(item);
-
-        // Nếu backend có trả classId/classroomId thì lọc theo lớp.
-        // Nếu backend không trả classId thì vẫn hiển thị lịch sử của user.
-        if (recordClassId != null && recordClassId.isNotEmpty && classId != '0') {
-          if (recordClassId != classId) continue;
-        }
-
         final dateTime = _getRecordDateTime(item);
         final date = _formatDate(dateTime);
         final time = _formatTime(dateTime);
@@ -299,6 +379,15 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
 
         final fallbackKey = '${date}_${time}_$status';
         final sessionId = _getSessionId(item, fallbackKey);
+
+        final isCurrentClass = _isRecordOfCurrentClass(
+          item: item,
+          targetClassId: classId,
+          sessionClassMap: sessionClassMap,
+          fallbackSessionId: fallbackKey,
+        );
+
+        if (!isCurrentClass) continue;
 
         final oldRecord = uniqueRecords[sessionId];
 
@@ -336,6 +425,8 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
 
         return bd.compareTo(ad);
       });
+
+      debugPrint('FILTERED HISTORY FOR CLASS $classId: ${_history.length} records');
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       debugPrint('LỖI LẤY LỊCH SỬ ĐIỂM DANH: $_errorMessage');

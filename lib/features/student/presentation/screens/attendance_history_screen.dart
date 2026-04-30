@@ -29,11 +29,9 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
 
     debugPrint("ATTENDANCE HISTORY ARGS -> className=$className, classId=$classId");
 
-    final vm = context.read<AttendanceHistoryViewModel>();
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      vm.fetchHistory(classId);
+      context.read<AttendanceHistoryViewModel>().fetchHistory(classId);
     });
   }
 
@@ -78,13 +76,13 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
             if (viewModel.errorMessage.isNotEmpty)
               _buildErrorBox(viewModel.errorMessage),
 
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  "Chi tiết các buổi học",
-                  style: TextStyle(
+                  "Chi tiết các buổi học - $className",
+                  style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 18,
                   ),
@@ -109,7 +107,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                       Text(
                         viewModel.errorMessage.isNotEmpty
                             ? "Không tải được lịch sử điểm danh.\nBạn hãy đăng xuất rồi đăng nhập lại."
-                            : "Chưa có dữ liệu điểm danh nào.",
+                            : "Lớp này chưa có dữ liệu điểm danh.",
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 15,
@@ -217,6 +215,16 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
       ),
       child: Column(
         children: [
+          Text(
+            className,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 24),
           Stack(
             alignment: Alignment.center,
             children: [
@@ -264,7 +272,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
               ),
               _buildStatItem(
                 'Tổng buổi',
-                viewModel.history.length.toString(),
+                viewModel.totalSessions.toString(),
                 Icons.event_note,
               ),
             ],
