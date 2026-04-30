@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../../app/app_routes.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../viewmodel/registered_classes_viewmodel.dart';
+import 'attendance_history_screen.dart';
 
 class RegisteredClassesScreen extends StatefulWidget {
   const RegisteredClassesScreen({super.key});
@@ -125,6 +126,31 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
     }
 
     return Icons.hourglass_top;
+  }
+
+  void _openAttendanceHistory({
+    required String classId,
+    required String className,
+  }) {
+    debugPrint("OPEN HISTORY DIRECT -> classId=$classId, className=$className");
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AttendanceHistoryScreen(
+          classId: classId,
+          className: className,
+        ),
+        settings: RouteSettings(
+          arguments: {
+            "classId": classId,
+            "className": className,
+            "id": classId,
+            "name": className,
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -369,13 +395,9 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                       child: OutlinedButton.icon(
                         onPressed: isApproved
                             ? () {
-                          Navigator.pushNamed(
-                            context,
-                            AppRoutes.attendanceHistory,
-                            arguments: {
-                              "classId": item.id,
-                              "className": item.className,
-                            },
+                          _openAttendanceHistory(
+                            classId: item.id,
+                            className: item.className,
                           );
                         }
                             : () {

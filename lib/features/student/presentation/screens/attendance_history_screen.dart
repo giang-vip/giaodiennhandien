@@ -4,7 +4,14 @@ import '../../../../core/constants/app_colors.dart';
 import '../../viewmodel/attendance_history_viewmodel.dart';
 
 class AttendanceHistoryScreen extends StatefulWidget {
-  const AttendanceHistoryScreen({super.key});
+  final String? classId;
+  final String? className;
+
+  const AttendanceHistoryScreen({
+    super.key,
+    this.classId,
+    this.className,
+  });
 
   @override
   State<AttendanceHistoryScreen> createState() => _AttendanceHistoryScreenState();
@@ -22,12 +29,31 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
     if (_loadedArgs) return;
     _loadedArgs = true;
 
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    // Ưu tiên lấy dữ liệu truyền trực tiếp qua constructor.
+    classId = widget.classId?.toString() ?? "0";
+    className = widget.className?.toString() ?? "Lớp học";
 
-    className = args?['className']?.toString() ?? "Lớp học";
-    classId = args?['classId']?.toString() ?? "0";
+    // Fallback: nếu vẫn dùng Navigator.pushNamed thì lấy từ arguments.
+    final rawArgs = ModalRoute.of(context)?.settings.arguments;
 
-    debugPrint("ATTENDANCE HISTORY ARGS -> className=$className, classId=$classId");
+    if ((classId == "0" || classId.isEmpty) && rawArgs is Map) {
+      final args = Map<String, dynamic>.from(rawArgs);
+
+      classId = args['classId']?.toString() ??
+          args['id']?.toString() ??
+          args['classroomId']?.toString() ??
+          args['classRoomId']?.toString() ??
+          "0";
+
+      className = args['className']?.toString() ??
+          args['name']?.toString() ??
+          args['title']?.toString() ??
+          "Lớp học";
+    }
+
+    debugPrint("ATTENDANCE HISTORY RAW ARGS -> $rawArgs");
+    debugPrint("ATTENDANCE HISTORY CONSTRUCTOR -> className=${widget.className}, classId=${widget.classId}");
+    debugPrint("ATTENDANCE HISTORY FINAL -> className=$className, classId=$classId");
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -106,7 +132,7 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                       const SizedBox(height: 16),
                       Text(
                         viewModel.errorMessage.isNotEmpty
-                            ? "Không tải được lịch sử điểm danh.\nBạn hãy đăng xuất rồi đăng nhập lại."
+                            ? viewModel.errorMessage
                             : "Lớp này chưa có dữ liệu điểm danh.",
                         textAlign: TextAlign.center,
                         style: const TextStyle(
@@ -142,16 +168,11 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
                       ),
                       title: Text(
                         'Ngày: ${record.date}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text('Giờ điểm danh: ${record.time}'),
                       trailing: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: isPresent ? Colors.green : Colors.red,
                           borderRadius: BorderRadius.circular(12),
