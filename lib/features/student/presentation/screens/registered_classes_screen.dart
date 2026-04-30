@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../app/app_routes.dart';
@@ -13,13 +14,35 @@ class RegisteredClassesScreen extends StatefulWidget {
 }
 
 class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
+  Timer? _countdownTimer;
+
   @override
   void initState() {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<RegisteredClassesViewModel>().fetchRegisteredClasses();
+      final vm = context.read<RegisteredClassesViewModel>();
+      vm.fetchRegisteredClasses();
+      _startCountdownTimer();
     });
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer?.cancel();
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+
+      context
+          .read<RegisteredClassesViewModel>()
+          .updateCountdownAndCloseExpiredSessions();
+    });
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
   }
 
   void _showTopNotification(
@@ -35,10 +58,7 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
         SnackBar(
           content: Row(
             children: [
-              Icon(
-                icon,
-                color: Colors.white,
-              ),
+              Icon(icon, color: Colors.white),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -125,13 +145,9 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
         ],
       ),
       body: vm.isLoading
-          ? const Center(
-        child: CircularProgressIndicator(),
-      )
+          ? const Center(child: CircularProgressIndicator())
           : classes.isEmpty
-          ? const Center(
-        child: Text("Bạn chưa có lớp nào."),
-      )
+          ? const Center(child: Text("Bạn chưa có lớp nào."))
           : RefreshIndicator(
         onRefresh: () async {
           await vm.fetchRegisteredClasses();
@@ -144,7 +160,7 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
 
             final status = vm.getRegistrationStatus(item.id);
             final isApproved = vm.isRegistrationApproved(item.id);
-            final isOpen = item.isAttendanceOpen;
+            final isOpen = vm.isClassAttendanceAvailable(item.id);
             final remain = vm.getRemainingText(item);
             final statusText = vm.getRegistrationStatusText(item.id);
 
@@ -205,9 +221,6 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
 
                     const SizedBox(height: 12),
 
-                    // FIX CHÍNH Ở ĐÂY:
-                    // Không còn hard-code "Đã được chấp nhận vào lớp" nữa.
-                    // Text + màu lấy theo status thật từ ViewModel.
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
@@ -235,35 +248,38 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                       ),
                     ),
 
-                    if (isOpen) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(.08),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.timer,
-                              color: Colors.green,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                "Phiên điểm danh đang mở • $remain",
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green,
-                                ),
+                    const SizedBox(height: 12),
+
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isOpen
+                            ? Colors.green.withOpacity(.08)
+                            : Colors.grey.withOpacity(.10),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isOpen ? Icons.timer : Icons.timer_off,
+                            color: isOpen ? Colors.green : Colors.grey,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              isOpen
+                                  ? "Phiên điểm danh đang mở • $remain"
+                                  : "Phiên điểm danh đã đóng hoặc chưa mở",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isOpen ? Colors.green : Colors.grey,
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
 
                     const Divider(height: 26),
 
@@ -272,18 +288,30 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                       child: ElevatedButton(
                         onPressed: isOpen
                             ? () {
+                          final sessionId =
+                          vm.getActiveSessionId(item.id);
+
+                          if (sessionId == null) {
+                            _showTopNotification(
+                              "Phiên điểm danh đã hết hạn",
+                              Colors.red,
+                              Icons.timer_off,
+                            );
+                            return;
+                          }
+
                           Navigator.pushNamed(
                             context,
                             AppRoutes.attendance,
                             arguments: {
                               "id": item.id,
                               "name": item.className,
-                              "sessionId":
-                              vm.getActiveSessionId(item.id),
+                              "sessionId": sessionId,
                               "locationId":
                               vm.getSessionLocationId(item.id) ?? 0,
                             },
                           ).then((_) {
+                            if (!mounted) return;
                             context
                                 .read<RegisteredClassesViewModel>()
                                 .fetchRegisteredClasses();
@@ -300,7 +328,7 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                           }
 
                           _showTopNotification(
-                            "Giáo viên chưa mở phiên điểm danh",
+                            "Phiên điểm danh đã đóng hoặc giáo viên chưa mở",
                             Colors.orange,
                             Icons.warning_amber,
                           );
@@ -324,7 +352,7 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                           isOpen
                               ? "VÀO ĐIỂM DANH • $remain"
                               : isApproved
-                              ? "CHƯA MỞ ĐIỂM DANH"
+                              ? "ĐÃ ĐÓNG / CHƯA MỞ ĐIỂM DANH"
                               : "ĐANG CHỜ DUYỆT",
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,

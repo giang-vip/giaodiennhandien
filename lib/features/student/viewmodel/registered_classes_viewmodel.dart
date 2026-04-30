@@ -15,13 +15,10 @@ class RegisteredClassesViewModel extends ChangeNotifier {
   List<AppClassModel> _classes = [];
   List<AppClassModel> get classes => _classes;
 
-  // Dòng này để đồng bộ với RegisteredClassesScreen
   List<AppClassModel> get registeredClasses => _classes;
 
   final Map<String, Map<String, dynamic>> _sessionMap = {};
   final Map<String, String> _registrationStatus = {};
-
-  // ================= TOKEN =================
 
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -55,7 +52,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
     if (data is Map) {
       if (data["content"] is List) return data["content"];
-
       if (data["data"] is List) return data["data"];
 
       if (data["data"] is Map && data["data"]["content"] is List) {
@@ -68,8 +64,36 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
   bool _isApprovedStatus(String? status) {
     final s = status?.trim().toUpperCase() ?? "PENDING";
-
     return s == "APPROVED" || s == "ACCEPTED" || s == "APPROVE";
+  }
+
+  DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+
+    final raw = value.toString().trim();
+    if (raw.isEmpty) return null;
+
+    try {
+      return DateTime.parse(raw).toLocal();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _isSessionStillOpen(Map<String, dynamic> session) {
+    final status = session["status"]?.toString().toUpperCase() ?? "";
+    if (status != "OPEN") return false;
+
+    final end = _parseDateTime(
+      session["endTime"] ??
+          session["endDateTime"] ??
+          session["attendanceEndTime"] ??
+          session["closedAt"],
+    );
+
+    if (end == null) return true;
+
+    return DateTime.now().isBefore(end);
   }
 
   void _sortOpenClassToTop() {
@@ -79,8 +103,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       return 0;
     });
   }
-
-  // ================= FETCH =================
 
   Future<void> fetchRegisteredClasses() async {
     _isLoading = true;
@@ -105,8 +127,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         "Accept": "application/json",
       };
 
-      // ================= LẤY DANH SÁCH ĐĂNG KÝ CỦA SINH VIÊN =================
-
       final regRes = await http.get(
         Uri.parse(
           "$_baseUrl/class-registrations/$studentId/classes?page=0&size=100",
@@ -123,10 +143,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         throw Exception("Load registrations fail: ${regRes.statusCode}");
       }
 
-      final regData = jsonDecode(
-        utf8.decode(regRes.bodyBytes),
-      );
-
+      final regData = jsonDecode(utf8.decode(regRes.bodyBytes));
       final regList = _safeList(regData);
 
       final Set<String> registeredIds = {};
@@ -142,15 +159,11 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
         if (id.isEmpty) continue;
 
-        // Nếu backend không trả status thì mặc định là PENDING,
-        // tuyệt đối không tự coi là đã duyệt.
         final status = m["status"]?.toString().toUpperCase() ?? "PENDING";
 
         registeredIds.add(id);
         _registrationStatus[id] = status;
       }
-
-      // ================= LẤY THÔNG TIN LỚP =================
 
       final classRes = await http.get(
         Uri.parse("$_baseUrl/classrooms?page=0&size=100"),
@@ -166,10 +179,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         throw Exception("Load classrooms fail: ${classRes.statusCode}");
       }
 
-      final classData = jsonDecode(
-        utf8.decode(classRes.bodyBytes),
-      );
-
+      final classData = jsonDecode(utf8.decode(classRes.bodyBytes));
       final allClasses = _safeList(classData);
 
       _classes = [];
@@ -177,9 +187,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       for (var e in allClasses) {
         final m = Map<String, dynamic>.from(e);
 
-        final id = m["classId"]?.toString() ??
-            m["id"]?.toString() ??
-            "";
+        final id = m["classId"]?.toString() ?? m["id"]?.toString() ?? "";
 
         if (id.isEmpty) continue;
         if (!registeredIds.contains(id)) continue;
@@ -187,7 +195,9 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         _classes.add(
           AppClassModel(
             id: id,
-            className: m["title"]?.toString() ?? "Chưa có tên lớp",
+            className: m["title"]?.toString() ??
+                m["className"]?.toString() ??
+                "Chưa có tên lớp",
             teacherName: m["teacherName"]?.toString() ?? "Chưa có giảng viên",
             description: m["description"]?.toString() ?? "Không có mô tả",
             teacherId: m["teacherId"]?.toString() ?? "",
@@ -198,8 +208,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         );
       }
 
-      // ================= LẤY SESSION ĐIỂM DANH ĐANG MỞ =================
-
       _sessionMap.clear();
 
       final sessionRes = await http.get(
@@ -208,18 +216,13 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       );
 
       if (sessionRes.statusCode == 200) {
-        final sessionData = jsonDecode(
-          utf8.decode(sessionRes.bodyBytes),
-        );
-
+        final sessionData = jsonDecode(utf8.decode(sessionRes.bodyBytes));
         final sessions = _safeList(sessionData);
 
         for (var s in sessions) {
           final sm = Map<String, dynamic>.from(s);
 
-          final sessionStatus = sm["status"]?.toString().toUpperCase() ?? "";
-
-          if (sessionStatus != "OPEN") continue;
+          if (!_isSessionStillOpen(sm)) continue;
 
           final classId = sm["classId"]?.toString() ??
               sm["classroomId"]?.toString() ??
@@ -229,15 +232,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
             _sessionMap[classId] = sm;
           }
         }
-
-        debugPrint("SessionMap: $_sessionMap");
       }
-
-      // ================= CHỐT LOGIC ĐỒNG BỘ VỚI SCREEN =================
-      // Chỉ khi:
-      // 1. Admin đã duyệt: APPROVED / ACCEPTED / APPROVE
-      // 2. Giáo viên đã mở session điểm danh
-      // thì nút mới xanh và cho vào điểm danh.
 
       for (int i = 0; i < _classes.length; i++) {
         final c = _classes[i];
@@ -249,8 +244,14 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
           _classes[i] = c.copyWith(
             isAttendanceOpen: true,
-            attendanceStartTime: s["startTime"]?.toString(),
-            attendanceEndTime: s["endTime"]?.toString(),
+            attendanceStartTime: (s["startTime"] ??
+                s["startDateTime"] ??
+                s["attendanceStartTime"])
+                ?.toString(),
+            attendanceEndTime: (s["endTime"] ??
+                s["endDateTime"] ??
+                s["attendanceEndTime"])
+                ?.toString(),
           );
         } else {
           _classes[i] = c.copyWith(
@@ -261,6 +262,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         }
       }
 
+      updateCountdownAndCloseExpiredSessions(shouldNotify: false);
       _sortOpenClassToTop();
     } catch (e) {
       debugPrint("FETCH ERROR $e");
@@ -270,7 +272,33 @@ class RegisteredClassesViewModel extends ChangeNotifier {
     }
   }
 
-  // ================= UI SUPPORT =================
+  void updateCountdownAndCloseExpiredSessions({bool shouldNotify = true}) {
+    bool changed = false;
+
+    for (int i = 0; i < _classes.length; i++) {
+      final c = _classes[i];
+
+      if (!c.isAttendanceOpen) continue;
+
+      final end = c.attendanceEndDateTime;
+
+      if (end != null && !DateTime.now().isBefore(end)) {
+        _sessionMap.remove(c.id);
+
+        _classes[i] = c.copyWith(
+          isAttendanceOpen: false,
+          attendanceStartTime: null,
+          attendanceEndTime: null,
+        );
+
+        changed = true;
+      }
+    }
+
+    if (shouldNotify || changed) {
+      notifyListeners();
+    }
+  }
 
   String getRegistrationStatus(String classId) {
     return _registrationStatus[classId] ?? "PENDING";
@@ -295,16 +323,34 @@ class RegisteredClassesViewModel extends ChangeNotifier {
   }
 
   bool isClassActive(String classId) {
-    return _classes.any(
-          (e) => e.id == classId && e.isAttendanceOpen,
-    );
+    return isClassAttendanceAvailable(classId);
+  }
+
+  bool isClassAttendanceAvailable(String classId) {
+    final index = _classes.indexWhere((e) => e.id == classId);
+    if (index == -1) return false;
+
+    final c = _classes[index];
+    if (!c.isAttendanceOpen) return false;
+    if (!_sessionMap.containsKey(classId)) return false;
+
+    final end = c.attendanceEndDateTime;
+    if (end == null) return true;
+
+    return DateTime.now().isBefore(end);
   }
 
   dynamic getActiveSessionId(String classId) {
-    return _sessionMap[classId]?["sessionId"];
+    if (!isClassAttendanceAvailable(classId)) return null;
+
+    return _sessionMap[classId]?["sessionId"] ??
+        _sessionMap[classId]?["id"] ??
+        _sessionMap[classId]?["attendanceSessionId"];
   }
 
   int? getSessionLocationId(String classId) {
+    if (!isClassAttendanceAvailable(classId)) return null;
+
     final value = _sessionMap[classId]?["locationId"];
 
     if (value == null) return null;
@@ -325,24 +371,21 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
     final diff = end.difference(DateTime.now());
 
-    if (diff.inSeconds <= 0) return "";
+    if (diff.inSeconds <= 0) return "00:00";
 
-    return "${diff.inMinutes}:${(diff.inSeconds % 60).toString().padLeft(2, '0')}";
+    final minutes = diff.inMinutes;
+    final seconds = diff.inSeconds % 60;
+
+    return "$minutes:${seconds.toString().padLeft(2, '0')}";
   }
 
   String getRemainingText(AppClassModel c) {
-    if (!c.isAttendanceOpen) {
-      return "Chưa mở";
+    if (!isClassAttendanceAvailable(c.id)) {
+      return "Đã đóng";
     }
 
     final t = getRemainingTime(c.id);
 
     return t.isEmpty ? "Đang mở" : "Còn lại $t";
   }
-
-  @override
-  void dispose() {
-    super.dispose();
-  }
 }
-
