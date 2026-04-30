@@ -367,7 +367,8 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () {
+                        onPressed: isApproved
+                            ? () {
                           Navigator.pushNamed(
                             context,
                             AppRoutes.attendanceHistory,
@@ -376,11 +377,22 @@ class _RegisteredClassesScreenState extends State<RegisteredClassesScreen> {
                               "className": item.className,
                             },
                           );
+                        }
+                            : () {
+                          _showTopNotification(
+                            "Lớp chưa được admin duyệt nên chưa có thống kê điểm danh",
+                            Colors.orange,
+                            Icons.lock_outline,
+                          );
                         },
-                        icon: const Icon(Icons.history),
-                        label: const Text(
-                          "XEM LỊCH SỬ ĐIỂM DANH",
-                          style: TextStyle(
+                        icon: Icon(
+                          isApproved ? Icons.history : Icons.lock_outline,
+                        ),
+                        label: Text(
+                          isApproved
+                              ? "XEM LỊCH SỬ ĐIỂM DANH"
+                              : "CHƯA ĐƯỢC XEM THỐNG KÊ",
+                          style: const TextStyle(
                             fontWeight: FontWeight.bold,
                           ),
                         ),

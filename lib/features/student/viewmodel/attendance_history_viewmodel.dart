@@ -35,6 +35,8 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
 
   bool get hasData => _history.isNotEmpty;
 
+  // ================= TOKEN =================
+
   Map<String, dynamic> _decodeJwt(String token) {
     try {
       String realToken = token.trim();
@@ -95,22 +97,16 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
 
       final token = value.trim();
 
-      if (!_isJwtToken(token)) {
-        debugPrint('Bỏ qua token key=$key vì không phải JWT');
-        continue;
-      }
+      if (!_isJwtToken(token)) continue;
+      if (_isTokenExpired(token)) continue;
 
-      if (_isTokenExpired(token)) {
-        debugPrint('Bỏ qua token key=$key vì đã hết hạn');
-        continue;
-      }
-
-      debugPrint('Dùng token key=$key');
       return token.replaceFirst('Bearer ', '').trim();
     }
 
     return null;
   }
+
+  // ================= SAFE PARSE =================
 
   List<dynamic> _safeList(dynamic data) {
     if (data is List) return data;
@@ -125,6 +121,24 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     }
 
     return [];
+  }
+
+  Map<String, dynamic>? _safeMap(dynamic value) {
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  String? _asString(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  bool _sameId(dynamic a, dynamic b) {
+    final x = _asString(a);
+    final y = _asString(b);
+    if (x == null || y == null) return false;
+    return x == y;
   }
 
   bool _isPresentStatus(dynamic value) {
@@ -186,29 +200,58 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     return '$h:$m';
   }
 
-  String _getSessionId(Map<String, dynamic> item, String fallback) {
-    return item['attendanceSessionId']?.toString() ??
-        item['sessionId']?.toString() ??
-        item['session']?['id']?.toString() ??
-        item['attendanceSession']?['id']?.toString() ??
-        item['recordId']?.toString() ??
-        item['id']?.toString() ??
-        fallback;
+  // ================= GET FIELD =================
+
+  String? _getSessionIdFromRecord(Map<String, dynamic> item) {
+    return _asString(item['attendanceSessionId']) ??
+        _asString(item['sessionId']) ??
+        _asString(item['attendance_session_id']) ??
+        _asString(item['session_id']) ??
+        _asString(item['session']?['id']) ??
+        _asString(item['session']?['sessionId']) ??
+        _asString(item['attendanceSession']?['id']) ??
+        _asString(item['attendanceSession']?['sessionId']);
   }
 
   String? _getRecordClassId(Map<String, dynamic> item) {
-    return item['classId']?.toString() ??
-        item['classroomId']?.toString() ??
-        item['classRoomId']?.toString() ??
-        item['roomId']?.toString() ??
-        item['classroom']?['id']?.toString() ??
-        item['classroom']?['classId']?.toString() ??
-        item['class']?['id']?.toString() ??
-        item['class']?['classId']?.toString() ??
-        item['session']?['classId']?.toString() ??
-        item['session']?['classroomId']?.toString() ??
-        item['attendanceSession']?['classId']?.toString() ??
-        item['attendanceSession']?['classroomId']?.toString();
+    return _asString(item['classId']) ??
+        _asString(item['classroomId']) ??
+        _asString(item['classRoomId']) ??
+        _asString(item['roomId']) ??
+        _asString(item['class_id']) ??
+        _asString(item['classroom_id']) ??
+        _asString(item['classroom']?['id']) ??
+        _asString(item['classroom']?['classId']) ??
+        _asString(item['classRoom']?['id']) ??
+        _asString(item['classRoom']?['classId']) ??
+        _asString(item['class']?['id']) ??
+        _asString(item['class']?['classId']) ??
+        _asString(item['session']?['classId']) ??
+        _asString(item['session']?['classroomId']) ??
+        _asString(item['attendanceSession']?['classId']) ??
+        _asString(item['attendanceSession']?['classroomId']);
+  }
+
+  String? _getSessionIdFromSession(Map<String, dynamic> session) {
+    return _asString(session['attendanceSessionId']) ??
+        _asString(session['sessionId']) ??
+        _asString(session['id']) ??
+        _asString(session['attendance_session_id']) ??
+        _asString(session['session_id']);
+  }
+
+  String? _getClassIdFromSession(Map<String, dynamic> session) {
+    return _asString(session['classId']) ??
+        _asString(session['classroomId']) ??
+        _asString(session['classRoomId']) ??
+        _asString(session['class_id']) ??
+        _asString(session['classroom_id']) ??
+        _asString(session['classroom']?['id']) ??
+        _asString(session['classroom']?['classId']) ??
+        _asString(session['classRoom']?['id']) ??
+        _asString(session['classRoom']?['classId']) ??
+        _asString(session['class']?['id']) ??
+        _asString(session['class']?['classId']);
   }
 
   DateTime? _getRecordDateTime(Map<String, dynamic> item) {
@@ -233,87 +276,139 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     );
   }
 
-  String? _getSessionClassId(Map<String, dynamic> session) {
-    return session['classId']?.toString() ??
-        session['classroomId']?.toString() ??
-        session['classRoomId']?.toString() ??
-        session['classroom']?['id']?.toString() ??
-        session['classroom']?['classId']?.toString() ??
-        session['class']?['id']?.toString() ??
-        session['class']?['classId']?.toString();
+  String _getRecordUniqueKey({
+    required Map<String, dynamic> item,
+    required String date,
+    required String time,
+    required String status,
+  }) {
+    final recordId = _asString(item['recordId']) ?? _asString(item['id']);
+    final sessionId = _getSessionIdFromRecord(item);
+
+    if (sessionId != null) return 'session_$sessionId';
+    if (recordId != null) return 'record_$recordId';
+
+    return '${date}_${time}_$status';
   }
 
-  String? _getSessionKey(Map<String, dynamic> session) {
-    return session['attendanceSessionId']?.toString() ??
-        session['sessionId']?.toString() ??
-        session['id']?.toString();
-  }
+  // ================= API HELPERS =================
 
-  Future<Map<String, String>> _fetchSessionClassMap({
+  Future<List<dynamic>> _getListFromApi({
+    required String url,
     required Map<String, String> headers,
   }) async {
-    final Map<String, String> sessionClassMap = {};
+    final response = await http.get(Uri.parse(url), headers: headers);
 
-    try {
-      final url = Uri.parse('$_baseUrl/sessions');
-      final response = await http.get(url, headers: headers);
+    debugPrint('GET $url -> ${response.statusCode}');
 
-      debugPrint('================= SESSION MAP API =================');
-      debugPrint('URL: $url');
-      debugPrint('STATUS: ${response.statusCode}');
-      debugPrint('===================================================');
+    if (response.statusCode != 200) return [];
 
-      if (response.statusCode != 200) return sessionClassMap;
+    final bodyText = utf8.decode(response.bodyBytes);
+    final data = jsonDecode(bodyText);
+    return _safeList(data);
+  }
 
-      final bodyText = utf8.decode(response.bodyBytes);
-      final data = jsonDecode(bodyText);
-      final sessions = _safeList(data);
+  Future<Set<String>> _fetchSessionIdsOfClass({
+    required String classId,
+    required Map<String, String> headers,
+  }) async {
+    final Set<String> result = {};
+
+    final sessionUrls = [
+      '$_baseUrl/sessions?classId=$classId',
+      '$_baseUrl/sessions?classroomId=$classId',
+      '$_baseUrl/sessions/class/$classId',
+      '$_baseUrl/sessions/classroom/$classId',
+      '$_baseUrl/sessions',
+    ];
+
+    for (final url in sessionUrls) {
+      final sessions = await _getListFromApi(url: url, headers: headers);
 
       for (final raw in sessions) {
-        if (raw is! Map) continue;
+        final session = _safeMap(raw);
+        if (session == null) continue;
 
-        final session = Map<String, dynamic>.from(raw);
-        final sessionId = _getSessionKey(session);
-        final sessionClassId = _getSessionClassId(session);
+        final sClassId = _getClassIdFromSession(session);
+        if (!_sameId(sClassId, classId)) continue;
 
-        if (sessionId == null || sessionId.isEmpty) continue;
-        if (sessionClassId == null || sessionClassId.isEmpty) continue;
-
-        sessionClassMap[sessionId] = sessionClassId;
+        final sessionId = _getSessionIdFromSession(session);
+        if (sessionId != null) result.add(sessionId);
       }
-    } catch (e) {
-      debugPrint('Không lấy được session map: $e');
+
+      if (result.isNotEmpty) break;
     }
 
-    return sessionClassMap;
+    debugPrint('SESSION IDS OF CLASS $classId = $result');
+    return result;
   }
 
-  bool _isRecordOfCurrentClass({
-    required Map<String, dynamic> item,
-    required String targetClassId,
-    required Map<String, String> sessionClassMap,
-    required String fallbackSessionId,
-  }) {
-    if (targetClassId == '0' || targetClassId.trim().isEmpty) return true;
+  Future<List<dynamic>> _fetchAttendanceRecordsByBestEndpoint({
+    required String classId,
+    required Map<String, String> headers,
+  }) async {
+    final candidateUrls = [
+      // Ưu tiên endpoint có filter classId nếu backend có hỗ trợ.
+      '$_baseUrl/attendance/user/me?classId=$classId',
+      '$_baseUrl/attendance/user/me?classroomId=$classId',
+      '$_baseUrl/attendance/me/class/$classId',
+      '$_baseUrl/attendance/class/$classId/me',
+      '$_baseUrl/attendance/classroom/$classId/me',
+      // Fallback cuối cùng: lấy toàn bộ rồi tự lọc thật chặt ở client.
+      '$_baseUrl/attendance/user/me',
+    ];
 
+    for (final url in candidateUrls) {
+      final response = await http.get(Uri.parse(url), headers: headers);
+      final bodyText = utf8.decode(response.bodyBytes);
+
+      debugPrint('================= ATTENDANCE API TRY =================');
+      debugPrint('URL: $url');
+      debugPrint('STATUS: ${response.statusCode}');
+      debugPrint('BODY: $bodyText');
+      debugPrint('=====================================================');
+
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        throw Exception(
+          'Bạn không có quyền xem lịch sử hoặc phiên đăng nhập đã hết hạn.',
+        );
+      }
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(bodyText);
+        return _safeList(data);
+      }
+    }
+
+    throw Exception('Lấy lịch sử điểm danh thất bại.');
+  }
+
+  bool _recordBelongsToClass({
+    required Map<String, dynamic> item,
+    required String classId,
+    required Set<String> sessionIdsOfClass,
+  }) {
     final recordClassId = _getRecordClassId(item);
 
-    if (recordClassId != null && recordClassId.isNotEmpty) {
-      return recordClassId == targetClassId;
+    // Ưu tiên lọc bằng classId trực tiếp trong record.
+    if (recordClassId != null) {
+      return _sameId(recordClassId, classId);
     }
 
-    final sessionId = _getSessionId(item, fallbackSessionId);
-    final mappedClassId = sessionClassMap[sessionId];
-
-    if (mappedClassId != null && mappedClassId.isNotEmpty) {
-      return mappedClassId == targetClassId;
+    // Nếu record không có classId thì lọc bằng sessionId thuộc lớp đó.
+    final recordSessionId = _getSessionIdFromRecord(item);
+    if (recordSessionId != null && sessionIdsOfClass.isNotEmpty) {
+      return sessionIdsOfClass.contains(recordSessionId);
     }
 
-    // FIX QUAN TRỌNG:
-    // Nếu record không có classId và cũng không map được sessionId sang classId
-    // thì KHÔNG được đưa vào mọi lớp nữa, vì sẽ làm tất cả lớp thống kê giống nhau.
+    // QUAN TRỌNG:
+    // Không được return true ở đây.
+    // Nếu không xác định được record thuộc lớp nào thì bỏ qua,
+    // tránh lỗi lớp nào cũng thống kê giống nhau.
     return false;
   }
+
+  // ================= FETCH HISTORY =================
 
   Future<void> fetchHistory(String classId) async {
     _isLoading = true;
@@ -322,6 +417,12 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final currentClassId = classId.trim();
+
+      if (currentClassId.isEmpty || currentClassId == '0') {
+        throw Exception('Không xác định được lớp cần xem thống kê.');
+      }
+
       final token = await _getValidToken();
 
       if (token == null || token.isEmpty) {
@@ -336,78 +437,69 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
         'Accept': 'application/json',
       };
 
-      final sessionClassMap = await _fetchSessionClassMap(headers: headers);
+      final sessionIdsOfClass = await _fetchSessionIdsOfClass(
+        classId: currentClassId,
+        headers: headers,
+      );
 
-      final url = Uri.parse('$_baseUrl/attendance/user/me');
-
-      debugPrint('================= ATTENDANCE HISTORY API =================');
-      debugPrint('URL: $url');
-      debugPrint('CLASS ID FILTER: $classId');
-      debugPrint('SESSION MAP SIZE: ${sessionClassMap.length}');
-      debugPrint('TOKEN START: ${token.length > 20 ? token.substring(0, 20) : token}...');
-
-      final response = await http.get(url, headers: headers);
-      final bodyText = utf8.decode(response.bodyBytes);
-
-      debugPrint('STATUS: ${response.statusCode}');
-      debugPrint('BODY: $bodyText');
-      debugPrint('==========================================================');
-
-      if (response.statusCode == 401 || response.statusCode == 403) {
-        throw Exception(
-          'Bạn không có quyền xem lịch sử hoặc phiên đăng nhập đã hết hạn.',
-        );
-      }
-
-      if (response.statusCode != 200) {
-        throw Exception('Lấy lịch sử điểm danh thất bại: ${response.statusCode}');
-      }
-
-      final data = jsonDecode(bodyText);
-      final content = _safeList(data);
+      final content = await _fetchAttendanceRecordsByBestEndpoint(
+        classId: currentClassId,
+        headers: headers,
+      );
 
       final Map<String, AttendanceRecordModel> uniqueRecords = {};
 
-      for (final raw in content) {
-        if (raw is! Map) continue;
+      int skipped = 0;
+      int accepted = 0;
 
-        final item = Map<String, dynamic>.from(raw);
+      for (final raw in content) {
+        final item = _safeMap(raw);
+        if (item == null) continue;
+
+        final belongs = _recordBelongsToClass(
+          item: item,
+          classId: currentClassId,
+          sessionIdsOfClass: sessionIdsOfClass,
+        );
+
+        if (!belongs) {
+          skipped++;
+          continue;
+        }
+
+        accepted++;
+
         final dateTime = _getRecordDateTime(item);
         final date = _formatDate(dateTime);
         final time = _formatTime(dateTime);
         final status = _getRecordStatus(item);
 
-        final fallbackKey = '${date}_${time}_$status';
-        final sessionId = _getSessionId(item, fallbackKey);
-
-        final isCurrentClass = _isRecordOfCurrentClass(
+        final uniqueKey = _getRecordUniqueKey(
           item: item,
-          targetClassId: classId,
-          sessionClassMap: sessionClassMap,
-          fallbackSessionId: fallbackKey,
+          date: date,
+          time: time,
+          status: status,
         );
 
-        if (!isCurrentClass) continue;
-
-        final oldRecord = uniqueRecords[sessionId];
+        final oldRecord = uniqueRecords[uniqueKey];
 
         if (oldRecord == null) {
-          uniqueRecords[sessionId] = AttendanceRecordModel(
+          uniqueRecords[uniqueKey] = AttendanceRecordModel(
             date: date,
             time: time,
             status: status,
-            sessionId: sessionId,
+            sessionId: uniqueKey,
           );
         } else {
           final oldPresent = _isPresentStatus(oldRecord.status);
           final newPresent = _isPresentStatus(status);
 
           if (!oldPresent && newPresent) {
-            uniqueRecords[sessionId] = AttendanceRecordModel(
+            uniqueRecords[uniqueKey] = AttendanceRecordModel(
               date: date,
               time: time,
               status: status,
-              sessionId: sessionId,
+              sessionId: uniqueKey,
             );
           }
         }
@@ -426,7 +518,12 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
         return bd.compareTo(ad);
       });
 
-      debugPrint('FILTERED HISTORY FOR CLASS $classId: ${_history.length} records');
+      debugPrint('================= FILTER RESULT =================');
+      debugPrint('CLASS ID: $currentClassId');
+      debugPrint('ACCEPTED RECORDS: $accepted');
+      debugPrint('SKIPPED RECORDS: $skipped');
+      debugPrint('FINAL UNIQUE HISTORY: ${_history.length}');
+      debugPrint('=================================================');
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
       debugPrint('LỖI LẤY LỊCH SỬ ĐIỂM DANH: $_errorMessage');
