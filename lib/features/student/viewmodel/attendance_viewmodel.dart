@@ -224,8 +224,8 @@ class AttendanceViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // FACE VERIFY TRƯỚC
-      await _verifyFace(studentId);
+      // FACE VERIFY TRƯỚC ****************_________________************************************************
+      // await _verifyFace(studentId);
 
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('access_token') ?? '';
@@ -249,12 +249,37 @@ class AttendanceViewModel extends ChangeNotifier {
       ));
 
       final response = await request.send();
+      final body = await response.stream.bytesToString();
+
+      // if (response.statusCode == 200 || response.statusCode == 201) {
+      //   return true;
+      // } else {
+      //   final body = await response.stream.bytesToString();
+      //   throw Exception(body);
+      // }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        return true;
+        final data = jsonDecode(body);
+
+        final name = data['name'];
+        final confidence = (data['confidence'] as num).toDouble();
+        final message = data['message'];
+
+        print("FaceResponse: $name - $confidence - $message");
+
+        if (name == "Unknown" || confidence < 0.6) {
+          // hiện thông báo lỗi cho người dùng
+          throw Exception(message);
+        } else {
+          // hiện thông báo thành công
+          // ví dụ SnackBar
+          // ScaffoldMessenger.of(context).showSnackBar(
+          //   SnackBar(content: Text("Điểm danh thành công: $name"))
+          // );
+          return true;
+        }
       } else {
-        final body = await response.stream.bytesToString();
-        throw Exception(body);
+        throw Exception("Không thể kết nối AI Server (Lỗi ${response.statusCode})");
       }
 
     } finally {
