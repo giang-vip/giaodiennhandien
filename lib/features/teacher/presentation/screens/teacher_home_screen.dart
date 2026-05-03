@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../../../app/app_routes.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../viewmodel/teacher_home_viewmodel.dart';
@@ -16,9 +17,16 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       context.read<TeacherHomeViewModel>().fetchDashboardData();
     });
+  }
+
+  Future<void> _reloadDashboard() async {
+    if (!mounted) return;
+    await context.read<TeacherHomeViewModel>().fetchDashboardData();
   }
 
   Future<void> _confirmLogout() async {
@@ -67,7 +75,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
           IconButton(
             tooltip: 'Làm mới',
             icon: const Icon(Icons.refresh_rounded),
-            onPressed: () => viewModel.fetchDashboardData(),
+            onPressed: viewModel.isLoading ? null : _reloadDashboard,
           ),
           IconButton(
             tooltip: 'Đăng xuất',
@@ -79,7 +87,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       body: viewModel.isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-        onRefresh: viewModel.fetchDashboardData,
+        onRefresh: _reloadDashboard,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -88,7 +96,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
             const SizedBox(height: 18),
             _buildStatsRow(viewModel),
             const SizedBox(height: 18),
-            _buildQuickActions(context, viewModel),
+            _buildQuickActions(context),
             const SizedBox(height: 18),
             _buildRecentClasses(viewModel),
           ],
@@ -233,10 +241,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     );
   }
 
-  Widget _buildQuickActions(
-      BuildContext context,
-      TeacherHomeViewModel viewModel,
-      ) {
+  Widget _buildQuickActions(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -261,9 +266,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               color: const Color(0xFF2563EB),
               onTap: () {
                 Navigator.pushNamed(context, AppRoutes.createClass).then((_) {
-                  if (context.mounted) {
-                    context.read<TeacherHomeViewModel>().fetchDashboardData();
-                  }
+                  if (context.mounted) _reloadDashboard();
                 });
               },
             ),
@@ -275,9 +278,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               color: const Color(0xFFF59E0B),
               onTap: () {
                 Navigator.pushNamed(context, AppRoutes.manageClasses).then((_) {
-                  if (context.mounted) {
-                    context.read<TeacherHomeViewModel>().fetchDashboardData();
-                  }
+                  if (context.mounted) _reloadDashboard();
                 });
               },
             ),
@@ -293,7 +294,9 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                   MaterialPageRoute(
                     builder: (_) => const ManageClassUsersScreen(),
                   ),
-                );
+                ).then((_) {
+                  if (context.mounted) _reloadDashboard();
+                });
               },
             ),
             _buildFeatureCard(
@@ -303,13 +306,8 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
               icon: Icons.bar_chart_rounded,
               color: const Color(0xFF10B981),
               onTap: () {
-                Navigator.pushNamed(
-                  context,
-                  AppRoutes.attendanceStats,
-                ).then((_) {
-                  if (context.mounted) {
-                    context.read<TeacherHomeViewModel>().fetchDashboardData();
-                  }
+                Navigator.pushNamed(context, AppRoutes.attendanceStats).then((_) {
+                  if (context.mounted) _reloadDashboard();
                 });
               },
             ),

@@ -3,688 +3,801 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../data/models/app_models.dart';
 import '../../../core/constants/api_constants.dart';
 
 class ClassManagementViewModel extends ChangeNotifier {
-
   final String _baseUrl = ApiConstants.baseUrl;
 
-  bool _isLoading=false;
-  bool get isLoading=>_isLoading;
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
 
-  List<AppClassModel> _realClasses=[];
-  List<AppClassModel> get realClasses=>_realClasses;
+  List<AppClassModel> _realClasses = [];
+  List<AppClassModel> get realClasses => _realClasses;
 
-  final Map<String,Map<String,dynamic>> _activeSessionData={};
-  final Map<String,Timer> _attendanceTimers={};
-  final Set<String> _closingClassIds={};
+  final Map<String, Map<String, dynamic>> _activeSessionData = {};
+  final Map<String, Timer> _attendanceTimers = {};
+  final Set<String> _closingClassIds = {};
 
-  //================ JWT ====================
+  String _localSessionKey(String classId) => 'local_open_session_$classId';
 
-  Map<String,dynamic> _decodeJwt(String token){
-    try{
-      final payload=token.split('.')[1];
+  Map<String, dynamic> _decodeJwt(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return {};
       return jsonDecode(
-          utf8.decode(
-              base64Url.decode(
-                  base64Url.normalize(payload)
-              )
-          )
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
       );
-    }catch(e){
+    } catch (_) {
       return {};
     }
   }
 
-  Future<bool> _isTokenValid(String token) async{
-    final prefs=await SharedPreferences.getInstance();
-
-    final jwt=_decodeJwt(token);
-
-    if(jwt['type']!='access'){
-      await prefs.clear();
-      return false;
-    }
-
-    final exp=jwt['exp'];
-
-    if(exp!=null){
-      final now=DateTime.now().millisecondsSinceEpoch~/1000;
-
-      if(now>=exp){
-        await prefs.clear();
-        return false;
-      }
-    }
-
-    return true;
+  Future<String?> _getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('access_token') ??
+        prefs.getString('token') ??
+        prefs.getString('jwt') ??
+        prefs.getString('accessToken');
   }
 
-  List _safeList(dynamic data){
-    try{
-      if(data is List) return data;
+  Future<Map<String, String>> _getHeaders() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw Exception('Không tìm thấy token. Vui lòng đăng nhập lại.');
+    }
 
-      if(data is Map){
+    return {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+  }
 
-        if(data["data"]!=null){
+  List _safeList(dynamic data) {
+    if (data is List) return data;
 
-          if(data["data"] is Map &&
-              data["data"]["content"]!=null){
-            return data["data"]["content"];
-          }
-
-          if(data["data"] is List){
-            return data["data"];
-          }
-
-        }
-
-        if(data["content"]!=null){
-          return data["content"];
-        }
-
+    if (data is Map) {
+      if (data['data'] is Map && data['data']['content'] is List) {
+        return data['data']['content'];
       }
-
-    }catch(_){}
+      if (data['result'] is Map && data['result']['content'] is List) {
+        return data['result']['content'];
+      }
+      if (data['content'] is List) return data['content'];
+      if (data['data'] is List) return data['data'];
+      if (data['result'] is List) return data['result'];
+      if (data['items'] is List) return data['items'];
+    }
 
     return [];
   }
 
-  String _normalizeText(String input){
-    return input
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'),' ');
+  String _getClassId(Map<String, dynamic> item) {
+    return item['id']?.toString() ??
+        item['classId']?.toString() ??
+        item['classroomId']?.toString() ??
+        item['classRoomId']?.toString() ??
+        '';
   }
 
-  DateTime? _parseDateTime(dynamic value){
-    if(value==null) return null;
-
-    final text=value.toString().trim();
-
-    if(text.isEmpty) return null;
-
-    return DateTime.tryParse(text);
+  String _getTeacherId(Map<String, dynamic> item) {
+    return item['teacherId']?.toString() ??
+        item['teacher']?['id']?.toString() ??
+        item['teacher']?['userId']?.toString() ??
+        item['user']?['id']?.toString() ??
+        item['createdBy']?.toString() ??
+        '';
   }
 
-  bool _isOpenStatus(dynamic status){
-    final s=status?.toString().toUpperCase().trim() ?? '';
-    return s=="OPEN" ||
-        s=="1" ||
-        s=="ACTIVE" ||
-        s=="ONGOING";
+  String _getSessionClassId(Map<String, dynamic> s) {
+    return s['classroom']?['id']?.toString() ??
+        s['classRoom']?['id']?.toString() ??
+        s['class']?['id']?.toString() ??
+        s['classroomId']?.toString() ??
+        s['classId']?.toString() ??
+        s['classRoomId']?.toString() ??
+        '';
   }
 
-  int _calculateAttendanceMinutes(
-      dynamic start,
-      dynamic end
-      ){
-
-    final s=_parseDateTime(start);
-    final e=_parseDateTime(end);
-
-    if(s==null || e==null) return 0;
-
-    final m=e.difference(s).inMinutes;
-
-    return m>0 ? m : 0;
+  bool _isOpenStatus(dynamic status) {
+    final s = status?.toString().trim().toUpperCase() ?? '';
+    return s == 'OPEN' || s == 'ACTIVE' || s == 'ONGOING' || s == '1';
   }
 
-  void _cancelTimer(String classId){
+  DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    if (text.isEmpty) return null;
+    return DateTime.tryParse(text)?.toLocal();
+  }
+
+  int? _parsePositiveInt(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    if (text.isEmpty) return null;
+    final n = int.tryParse(text);
+    if (n == null || n <= 0) return null;
+    return n;
+  }
+
+  int _calculateAttendanceMinutes(dynamic start, dynamic end) {
+    final s = _parseDateTime(start);
+    final e = _parseDateTime(end);
+
+    if (s == null || e == null) return 0;
+
+    final m = e.difference(s).inMinutes;
+    return m > 0 ? m : 0;
+  }
+
+  String? _getSavedLocationId({
+    required SharedPreferences prefs,
+    required String classId,
+    required Map<String, dynamic> item,
+  }) {
+    final savedRoom = prefs.getString('class_${classId}_room');
+    final savedLocation = prefs.getString('class_${classId}_location');
+    final savedOther = prefs.getString('location_$classId');
+
+    if (savedRoom != null && savedRoom.trim().isNotEmpty) {
+      return savedRoom.trim();
+    }
+    if (savedLocation != null && savedLocation.trim().isNotEmpty) {
+      return savedLocation.trim();
+    }
+    if (savedOther != null && savedOther.trim().isNotEmpty) {
+      return savedOther.trim();
+    }
+
+    final locationIds = item['locationIds'];
+    if (locationIds is List && locationIds.isNotEmpty) {
+      return locationIds.first.toString();
+    }
+
+    final locations = item['locations'];
+    if (locations is List && locations.isNotEmpty) {
+      final first = locations.first;
+      if (first is Map && first['id'] != null) return first['id'].toString();
+      return first.toString();
+    }
+
+    final location = item['location'];
+    if (location is Map && location['id'] != null) {
+      return location['id'].toString();
+    }
+
+    return item['locationId']?.toString() ?? item['roomId']?.toString();
+  }
+
+  int? _getClassLocationId(AppClassModel c) {
+    return _parsePositiveInt(c.roomId);
+  }
+
+  int? _getSessionLocationId(Map<String, dynamic>? s) {
+    if (s == null) return null;
+
+    final location = s['location'];
+    dynamic nestedId;
+    if (location is Map) nestedId = location['id'];
+
+    return _parsePositiveInt(s['locationId'] ?? nestedId);
+  }
+
+  String _extractErrorMessage(http.Response res, String fallback) {
+    try {
+      final body = utf8.decode(res.bodyBytes);
+      debugPrint('API ERROR STATUS -> ${res.statusCode}');
+      debugPrint('API ERROR BODY -> $body');
+
+      if (body.trim().isEmpty) return '$fallback (${res.statusCode})';
+
+      final data = jsonDecode(body);
+      if (data is Map) {
+        return data['message']?.toString() ??
+            data['error']?.toString() ??
+            data['detail']?.toString() ??
+            data['title']?.toString() ??
+            '$fallback (${res.statusCode})';
+      }
+    } catch (_) {}
+
+    return '$fallback (${res.statusCode})';
+  }
+
+  void _cancelTimer(String classId) {
     _attendanceTimers[classId]?.cancel();
     _attendanceTimers.remove(classId);
   }
 
-  void _cancelAllTimers(){
-    for(final t in _attendanceTimers.values){
-      t.cancel();
+  void _cancelAllTimers() {
+    for (final timer in _attendanceTimers.values) {
+      timer.cancel();
     }
-
     _attendanceTimers.clear();
   }
 
-  Future<Map<String,String>> _getHeaders() async{
-
-    final prefs=await SharedPreferences.getInstance();
-
-    final token=prefs.getString("access_token");
-
-    if(token==null || token.isEmpty){
-      throw Exception("Không tìm thấy token");
-    }
-
-    return {
-      "Authorization":"Bearer $token",
-      "Content-Type":"application/json"
-    };
-
-  }
-
-  //============== SORT lớp mở lên đầu ===============
-
-  void _sortClasses(){
-    _realClasses.sort((a,b){
-
-      if(a.isAttendanceOpen && !b.isAttendanceOpen){
-        return -1;
-      }
-
-      if(!a.isAttendanceOpen && b.isAttendanceOpen){
-        return 1;
-      }
-
+  void _sortClasses() {
+    _realClasses.sort((a, b) {
+      if (a.isAttendanceOpen && !b.isAttendanceOpen) return -1;
+      if (!a.isAttendanceOpen && b.isAttendanceOpen) return 1;
       return 0;
-
     });
   }
 
-  //===================================================
+  Future<void> _saveLocalOpenSession(
+      String classId,
+      Map<String, dynamic> data,
+      ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_localSessionKey(classId), jsonEncode(data));
+  }
 
-  Future<void> fetchClasses() async{
+  Future<void> _removeLocalOpenSession(String classId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_localSessionKey(classId));
+  }
 
-    _isLoading=true;
+  Future<void> _clearAllLocalOpenSessions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where(
+          (key) => key.startsWith('local_open_session_'),
+    );
+
+    for (final key in keys) {
+      await prefs.remove(key);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _loadLocalOpenSession(String classId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_localSessionKey(classId));
+
+    if (raw == null || raw.isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      await prefs.remove(_localSessionKey(classId));
+    }
+
+    return null;
+  }
+
+  Future<void> fetchClasses() async {
+    _isLoading = true;
     notifyListeners();
 
-    try{
-
-      final prefs=await SharedPreferences.getInstance();
-
-      final token=prefs.getString("access_token");
-
-      if(token==null || token.isEmpty){
-        _realClasses=[];
-        return;
-      }
-
-      final valid=await _isTokenValid(token);
-
-      if(!valid){
-        _realClasses=[];
-        return;
-      }
-
-      final jwt=_decodeJwt(token);
-      final myTeacherId=jwt["sub"]?.toString() ?? "";
-
-      final headers={
-        "Authorization":"Bearer $token",
-        "Content-Type":"application/json"
-      };
+    try {
+      final headers = await _getHeaders();
+      final token = await _getToken();
+      final jwt = token == null ? {} : _decodeJwt(token);
+      final myTeacherId = jwt['sub']?.toString() ?? '';
 
       _cancelAllTimers();
       _activeSessionData.clear();
 
-      final classRes=await http.get(
-          Uri.parse("$_baseUrl/classrooms?page=0&size=50"),
-          headers: headers
+      final classRes = await http.get(
+        Uri.parse('$_baseUrl/classrooms?page=0&size=100'),
+        headers: headers,
       );
 
-      if(classRes.statusCode!=200){
-        _realClasses=[];
+      debugPrint('CLASSROOM STATUS -> ${classRes.statusCode}');
+      debugPrint('CLASSROOM BODY -> ${utf8.decode(classRes.bodyBytes)}');
+
+      if (classRes.statusCode != 200) {
+        _realClasses = [];
         return;
       }
 
-      final classData=jsonDecode(
-          utf8.decode(classRes.bodyBytes)
-      );
+      final classData = jsonDecode(utf8.decode(classRes.bodyBytes));
+      final classList = _safeList(classData);
+      final prefs = await SharedPreferences.getInstance();
 
-      final List classList=_safeList(classData);
-
-      final mapped=classList.map((item){
-
-        final classId=(item["id"]??item["classId"]).toString();
-
-        final teacherId=
-            item["teacherId"]?.toString()
-                ?? item["teacher"]?["id"]?.toString()
-                ?? '';
-
-        final locationIds=item["locationIds"];
-
-        final localRoomId=
-        prefs.getString("class_${classId}_room");
-
-        String? roomId;
-
-        if(localRoomId!=null &&
-            localRoomId.isNotEmpty){
-          roomId=localRoomId;
-        }
-        else if(locationIds is List &&
-            locationIds.isNotEmpty){
-          roomId=locationIds.first.toString();
-        }
-
-        final radius=
-        prefs.getDouble("class_${classId}_radius");
+      _realClasses = classList.map((raw) {
+        final item = Map<String, dynamic>.from(raw);
+        final classId = _getClassId(item);
+        final teacherId = _getTeacherId(item);
 
         return AppClassModel(
-            id: classId,
-            teacherId: teacherId,
-            className: item["title"] ?? '',
-            description: item["description"] ?? '',
-            teacherName: item["teacherName"] ?? '',
-            startTime: item["startDate"]?.toString() ?? '',
-            endTime: item["endDate"]?.toString() ?? '',
-            isAttendanceOpen: false,
-            attendanceDuration:0,
-            roomId: roomId,
-            radius: radius
+          id: classId,
+          teacherId: teacherId,
+          className: item['title']?.toString() ??
+              item['className']?.toString() ??
+              item['name']?.toString() ??
+              'Chưa có tên lớp',
+          description: item['description']?.toString() ?? '',
+          teacherName: item['teacherName']?.toString() ??
+              item['teacher']?['fullName']?.toString() ??
+              item['teacher']?['name']?.toString() ??
+              '',
+          startTime: item['startDate']?.toString() ??
+              item['startTime']?.toString() ??
+              '',
+          endTime: item['endDate']?.toString() ??
+              item['endTime']?.toString() ??
+              '',
+          isAttendanceOpen: false,
+          attendanceDuration: 0,
+          roomId: _getSavedLocationId(
+            prefs: prefs,
+            classId: classId,
+            item: item,
+          ),
+          radius: prefs.getDouble('class_${classId}_radius'),
         );
+      }).where((c) {
+        if (c.id.isEmpty || c.id == '0') return false;
 
+        if (myTeacherId.isEmpty) return true;
+        if (c.teacherId.isEmpty) return true;
+
+        return c.teacherId == myTeacherId;
       }).toList();
 
-      _realClasses=
-          mapped.where(
-                  (c)=>c.teacherId.toString()==myTeacherId
-          ).toList();
-
-      final sessionRes=await http.get(
-          Uri.parse("$_baseUrl/sessions"),
-          headers: headers
+      final sessionRes = await http.get(
+        Uri.parse('$_baseUrl/sessions'),
+        headers: headers,
       );
 
-      if(sessionRes.statusCode==200){
+      debugPrint('SESSION LIST STATUS -> ${sessionRes.statusCode}');
+      debugPrint('SESSION LIST BODY -> ${utf8.decode(sessionRes.bodyBytes)}');
 
-        final sessionData=jsonDecode(
-            utf8.decode(sessionRes.bodyBytes)
-        );
+      if (sessionRes.statusCode == 200) {
+        final sessionData = jsonDecode(utf8.decode(sessionRes.bodyBytes));
+        final sessionList = _safeList(sessionData);
 
-        final List sessionList=
-        _safeList(sessionData);
+        final openedIdsFromDb = <String>{};
 
-        for(var s in sessionList){
+        for (final raw in sessionList) {
+          final s = Map<String, dynamic>.from(raw);
+          if (!_isOpenStatus(s['status'])) continue;
 
-          if(!_isOpenStatus(s["status"])){
+          final classId = _getSessionClassId(s);
+          if (classId.isEmpty) continue;
+
+          final end = _parseDateTime(s['endTime'] ?? s['endDateTime']);
+
+          if (end != null && !DateTime.now().isBefore(end)) {
+            await _closeSessionByRawData(classId, s, silent: true);
             continue;
           }
 
-          String? classId=
-              s["classroomId"]?.toString()
-                  ?? s["classId"]?.toString();
+          openedIdsFromDb.add(classId);
 
-          if(classId==null) continue;
-
-          _activeSessionData[classId]={
-            "sessionId":s["sessionId"]??s["id"],
-            "locationId":s["locationId"],
-            "title":s["title"],
-            "startTime":s["startTime"],
-            "endTime":s["endTime"]
+          final sessionMap = {
+            'sessionId': s['sessionId'] ?? s['id'] ?? s['attendanceSessionId'],
+            'locationId': s['locationId'] ??
+                (s['location'] is Map ? s['location']['id'] : null),
+            'title': s['title'],
+            'startTime': s['startTime'] ?? s['startDateTime'],
+            'endTime': s['endTime'] ?? s['endDateTime'],
+            'raw': s,
           };
 
-          final idx=
-          _realClasses.indexWhere(
-                  (c)=>c.id==classId
-          );
-
-          if(idx!=-1){
-
-            _realClasses[idx]=
-                _realClasses[idx].copyWith(
-                    isAttendanceOpen:true,
-                    attendanceDuration:
-                    _calculateAttendanceMinutes(
-                        s["startTime"],
-                        s["endTime"]
-                    ),
-                    attendanceStartTime:
-                    s["startTime"]?.toString(),
-                    attendanceEndTime:
-                    s["endTime"]?.toString()
-                );
-
-            _scheduleAutoClose(classId);
-
-          }
-
+          _activeSessionData[classId] = sessionMap;
+          await _saveLocalOpenSession(classId, sessionMap);
         }
 
+        final prefs = await SharedPreferences.getInstance();
+        final localKeys = prefs.getKeys().where(
+              (key) => key.startsWith('local_open_session_'),
+        );
+
+        for (final key in localKeys) {
+          final id = key.replaceFirst('local_open_session_', '');
+          if (!openedIdsFromDb.contains(id)) {
+            await prefs.remove(key);
+          }
+        }
+      } else {
+        await _clearAllLocalOpenSessions();
+      }
+
+      for (int i = 0; i < _realClasses.length; i++) {
+        final c = _realClasses[i];
+        final session = _activeSessionData[c.id];
+
+        if (session == null) {
+          _realClasses[i] = c.copyWith(
+            isAttendanceOpen: false,
+            attendanceDuration: 0,
+            attendanceStartTime: null,
+            attendanceEndTime: null,
+          );
+          continue;
+        }
+
+        _realClasses[i] = c.copyWith(
+          isAttendanceOpen: true,
+          attendanceDuration: _calculateAttendanceMinutes(
+            session['startTime'],
+            session['endTime'],
+          ),
+          attendanceStartTime: session['startTime']?.toString(),
+          attendanceEndTime: session['endTime']?.toString(),
+          roomId: c.roomId ?? _getSessionLocationId(session)?.toString(),
+        );
+
+        _scheduleAutoClose(c.id);
       }
 
       _sortClasses();
-
-    }
-    catch(e){
-      print(e);
-      _realClasses=[];
-    }
-    finally{
-      _isLoading=false;
+    } catch (e) {
+      debugPrint('FETCH CLASSES ERROR -> $e');
+      _realClasses = [];
+    } finally {
+      _isLoading = false;
       notifyListeners();
     }
-
   }
 
-  void _scheduleAutoClose(String classId){
-
-    _cancelTimer(classId);
-
-    final c=_realClasses.cast<AppClassModel?>().firstWhere(
-            (x)=>x?.id==classId,
-        orElse: ()=>null
-    );
-
-    if(c==null) return;
-
-    final end=c.attendanceEndDateTime;
-
-    if(end==null) return;
-
-    final remain=
-    end.difference(DateTime.now());
-
-    if(remain.inSeconds<=0){
-      _closeExpiredSession(classId);
-      return;
-    }
-
-    _attendanceTimers[classId]=
-        Timer(remain,() async{
-          await _closeExpiredSession(classId);
-        });
-
-  }
-
-  Future<void> _closeExpiredSession(
-      String classId
-      ) async{
-
-    if(_closingClassIds.contains(classId)) return;
-
-    _closingClassIds.add(classId);
-
-    try{
-
-      final session=_activeSessionData[classId];
-      if(session==null) return;
-
-      final idx=
-      _realClasses.indexWhere((c)=>c.id==classId);
-
-      if(idx==-1) return;
-
-      await _closeSessionInternal(
-          classId: classId,
-          current: _realClasses[idx],
-          sessionData: session
-      );
-
-    }finally{
-      _closingClassIds.remove(classId);
-    }
-
-  }
-
-  //============ chỉ cho mở 1 lớp duy nhất ============
-
-  bool _hasOtherOpenedClass(String currentClassId){
-
+  bool _hasOtherOpenedClass(String currentClassId) {
     return _realClasses.any(
-            (c)=>
-        c.id!=currentClassId &&
-            c.isAttendanceOpen
+          (c) => c.id != currentClassId && c.isAttendanceOpen,
     );
-
   }
 
-  //===================================================
+  Future<void> toggleAttendance(String classId, int minutes) async {
+    final index = _realClasses.indexWhere((c) => c.id == classId);
+    if (index == -1) throw Exception('Không tìm thấy lớp');
 
-  Future<void> toggleAttendance(
-      String classId,
-      int minutes
-      ) async{
+    final current = _realClasses[index];
 
-    final index=
-    _realClasses.indexWhere(
-            (c)=>c.id==classId
-    );
-
-    if(index==-1){
-      throw Exception("Không tìm thấy lớp");
-    }
-
-    final current=_realClasses[index];
-
-    // chặn mở nhiều lớp cùng lúc
-    if(!current.isAttendanceOpen &&
-        _hasOtherOpenedClass(classId)){
-      throw Exception(
-          "Bạn đang mở điểm danh cho lớp khác. Hãy đóng phiên hiện tại trước."
-      );
-    }
-
-    final headers=await _getHeaders();
-
-    if(!current.isAttendanceOpen){
-
-      final now=DateTime.now();
-      final end=
-      now.add(Duration(minutes: minutes));
-
-      final locationId=
-      int.tryParse(current.roomId ?? '');
-
-      if(locationId==null || locationId<=0){
+    if (!current.isAttendanceOpen) {
+      if (_hasOtherOpenedClass(classId)) {
         throw Exception(
-            "Hãy Set Location trước."
+          'Bạn đang mở điểm danh cho lớp khác. Hãy đóng phiên hiện tại trước.',
         );
       }
 
-      final body={
-        "title":"Attendance - ${current.className}",
-        "startTime":now.toIso8601String(),
-        "endTime":end.toIso8601String(),
-        "status":"OPEN",
-        "classId":int.parse(classId),
-        "locationId":locationId
-      };
+      await _openAttendanceSession(classId, current, minutes);
+      await Future.delayed(const Duration(milliseconds: 250));
+      await fetchClasses();
+    } else {
+      final session =
+          _activeSessionData[classId] ?? await _loadLocalOpenSession(classId);
 
-      final res=await http.post(
-          Uri.parse("$_baseUrl/sessions"),
-          headers: headers,
-          body: jsonEncode(body)
-      );
-
-      if(res.statusCode==200 ||
-          res.statusCode==201){
-
-        _realClasses[index]=
-            current.copyWith(
-                isAttendanceOpen:true,
-                attendanceDuration:minutes,
-                attendanceStartTime:
-                now.toIso8601String(),
-                attendanceEndTime:
-                end.toIso8601String()
-            );
-
-        _sortClasses();
-
-        notifyListeners();
-
-        _scheduleAutoClose(classId);
-
+      if (session == null) {
+        await _forceCloseClassLocal(classId);
         await fetchClasses();
-
-      }else{
-        throw Exception(
-            "Mở điểm danh thất bại"
-        );
-      }
-
-    }
-    else{
-
-      final session=
-      _activeSessionData[classId];
-
-      if(session==null){
-        throw Exception(
-            "Không tìm thấy session đang mở"
-        );
+        return;
       }
 
       await _closeSessionInternal(
-          classId: classId,
-          current: current,
-          sessionData: session
+        classId: classId,
+        current: current,
+        sessionData: session,
       );
 
+      await Future.delayed(const Duration(milliseconds: 250));
+      await fetchClasses();
+    }
+  }
+
+  Future<void> _openAttendanceSession(
+      String classId,
+      AppClassModel current,
+      int minutes,
+      ) async {
+    if (minutes <= 0) {
+      throw Exception('Thời gian mở điểm danh phải lớn hơn 0 phút.');
     }
 
+    final headers = await _getHeaders();
+
+    final classroomId = _parsePositiveInt(classId);
+    if (classroomId == null) {
+      throw Exception('ClassId không hợp lệ: $classId');
+    }
+
+    final locationId = _getClassLocationId(current);
+    if (locationId == null) {
+      throw Exception('Hãy Set Location trước khi mở điểm danh.');
+    }
+
+    final now = DateTime.now();
+    final end = now.add(Duration(minutes: minutes));
+
+    final body = {
+      'title': 'Attendance - ${current.className}',
+      'startTime': now.toIso8601String(),
+      'endTime': end.toIso8601String(),
+      'status': 'OPEN',
+      'classId': classroomId,
+      'classroomId': classroomId,
+      'locationId': locationId,
+    };
+
+    debugPrint('OPEN SESSION BODY -> ${jsonEncode(body)}');
+
+    final res = await http.post(
+      Uri.parse('$_baseUrl/sessions'),
+      headers: headers,
+      body: jsonEncode(body),
+    );
+
+    debugPrint('OPEN SESSION STATUS -> ${res.statusCode}');
+    debugPrint('OPEN SESSION BODY -> ${utf8.decode(res.bodyBytes)}');
+
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(_extractErrorMessage(res, 'Mở điểm danh thất bại'));
+    }
+
+    Map<String, dynamic> created = {};
+
+    try {
+      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      if (decoded is Map) {
+        final data = decoded['data'];
+        created = data is Map
+            ? Map<String, dynamic>.from(data)
+            : Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+
+    final sessionId =
+        created['sessionId'] ?? created['id'] ?? created['attendanceSessionId'];
+
+    final localSession = {
+      'sessionId': sessionId,
+      'locationId': locationId,
+      'title': body['title'],
+      'startTime': body['startTime'],
+      'endTime': body['endTime'],
+    };
+
+    _activeSessionData[classId] = localSession;
+    await _saveLocalOpenSession(classId, localSession);
+
+    final idx = _realClasses.indexWhere((c) => c.id == classId);
+    if (idx != -1) {
+      _realClasses[idx] = _realClasses[idx].copyWith(
+        isAttendanceOpen: true,
+        attendanceDuration: minutes,
+        attendanceStartTime: now.toIso8601String(),
+        attendanceEndTime: end.toIso8601String(),
+        roomId: locationId.toString(),
+      );
+    }
+
+    _sortClasses();
+    notifyListeners();
+    _scheduleAutoClose(classId);
   }
 
   Future<void> _closeSessionInternal({
     required String classId,
     required AppClassModel current,
-    required Map<String,dynamic> sessionData
-  }) async{
+    required Map<String, dynamic> sessionData,
+  }) async {
+    final headers = await _getHeaders();
 
-    final headers=await _getHeaders();
+    final sessionId =
+        sessionData['sessionId'] ?? sessionData['id'] ?? sessionData['attendanceSessionId'];
 
-    final sessionId=sessionData["sessionId"];
+    if (sessionId == null || sessionId.toString().isEmpty) {
+      await _forceCloseClassLocal(classId);
+      return;
+    }
 
-    final body={
-      "title":sessionData["title"],
-      "startTime":sessionData["startTime"],
-      "endTime":DateTime.now().toIso8601String(),
-      "status":"CLOSED",
-      "classId":int.parse(classId),
-      "locationId":int.parse(
-          current.roomId.toString()
-      )
+    final classroomId = _parsePositiveInt(classId);
+    if (classroomId == null) {
+      throw Exception('ClassId không hợp lệ: $classId');
+    }
+
+    final locationId =
+        _getSessionLocationId(sessionData) ?? _getClassLocationId(current);
+
+    final body = {
+      'title': sessionData['title'] ?? 'Attendance - ${current.className}',
+      'startTime': sessionData['startTime'] ??
+          current.attendanceStartTime ??
+          DateTime.now().toIso8601String(),
+      'endTime': DateTime.now().toIso8601String(),
+      'status': 'CLOSED',
+      'classId': classroomId,
+      'classroomId': classroomId,
+      if (locationId != null) 'locationId': locationId,
     };
 
-    final res=await http.put(
-        Uri.parse(
-            "$_baseUrl/sessions/$sessionId"
-        ),
-        headers: headers,
-        body: jsonEncode(body)
+    debugPrint('CLOSE SESSION BODY -> ${jsonEncode(body)}');
+
+    final res = await http.put(
+      Uri.parse('$_baseUrl/sessions/$sessionId'),
+      headers: headers,
+      body: jsonEncode(body),
     );
 
-    if(res.statusCode==200 ||
-        res.statusCode==201){
+    debugPrint('CLOSE SESSION STATUS -> ${res.statusCode}');
+    debugPrint('CLOSE SESSION BODY -> ${utf8.decode(res.bodyBytes)}');
 
-      _cancelTimer(classId);
+    if (res.statusCode != 200 &&
+        res.statusCode != 201 &&
+        res.statusCode != 204) {
+      throw Exception(_extractErrorMessage(res, 'Đóng điểm danh thất bại'));
+    }
 
-      _activeSessionData.remove(classId);
+    await _forceCloseClassLocal(classId);
+  }
 
-      final idx=
-      _realClasses.indexWhere(
-              (c)=>c.id==classId
+  Future<void> _closeSessionByRawData(
+      String classId,
+      Map<String, dynamic> raw, {
+        bool silent = false,
+      }) async {
+    try {
+      final sessionId = raw['sessionId'] ?? raw['id'] ?? raw['attendanceSessionId'];
+
+      if (sessionId == null || sessionId.toString().isEmpty) {
+        await _forceCloseClassLocal(classId);
+        return;
+      }
+
+      final classroomId = _parsePositiveInt(classId);
+      if (classroomId == null) {
+        await _forceCloseClassLocal(classId);
+        return;
+      }
+
+      final locationId = _parsePositiveInt(
+        raw['locationId'] ??
+            (raw['location'] is Map ? raw['location']['id'] : null),
       );
 
-      if(idx!=-1){
+      final headers = await _getHeaders();
 
-        _realClasses[idx]=
-            _realClasses[idx].copyWith(
-                isAttendanceOpen:false,
-                attendanceDuration:0,
-                attendanceStartTime:null,
-                attendanceEndTime:null
-            );
+      final body = {
+        'title': raw['title'] ?? 'Attendance',
+        'startTime': raw['startTime'] ??
+            raw['startDateTime'] ??
+            DateTime.now().toIso8601String(),
+        'endTime': DateTime.now().toIso8601String(),
+        'status': 'CLOSED',
+        'classId': classroomId,
+        'classroomId': classroomId,
+        if (locationId != null) 'locationId': locationId,
+      };
 
-        _sortClasses();
+      final res = await http.put(
+        Uri.parse('$_baseUrl/sessions/$sessionId'),
+        headers: headers,
+        body: jsonEncode(body),
+      );
 
-        notifyListeners();
+      if (res.statusCode == 200 ||
+          res.statusCode == 201 ||
+          res.statusCode == 204) {
+        await _forceCloseClassLocal(classId);
+      } else {
+        throw Exception(_extractErrorMessage(res, 'Đóng session hết hạn thất bại'));
+      }
+    } catch (e) {
+      if (!silent) rethrow;
+      debugPrint('AUTO CLOSE RAW SESSION ERROR -> $e');
+    }
+  }
+
+  Future<void> _forceCloseClassLocal(String classId) async {
+    _cancelTimer(classId);
+    _activeSessionData.remove(classId);
+    await _removeLocalOpenSession(classId);
+
+    final idx = _realClasses.indexWhere((c) => c.id == classId);
+    if (idx != -1) {
+      _realClasses[idx] = _realClasses[idx].copyWith(
+        isAttendanceOpen: false,
+        attendanceDuration: 0,
+        attendanceStartTime: null,
+        attendanceEndTime: null,
+      );
+    }
+
+    _sortClasses();
+    notifyListeners();
+  }
+
+  void _scheduleAutoClose(String classId) {
+    _cancelTimer(classId);
+
+    final c = _realClasses.cast<AppClassModel?>().firstWhere(
+          (x) => x?.id == classId,
+      orElse: () => null,
+    );
+
+    if (c == null) return;
+
+    final end = c.attendanceEndDateTime;
+    if (end == null) return;
+
+    final remain = end.difference(DateTime.now());
+
+    if (remain.inSeconds <= 0) {
+      _closeExpiredSession(classId);
+      return;
+    }
+
+    _attendanceTimers[classId] = Timer(remain, () async {
+      await _closeExpiredSession(classId);
+    });
+  }
+
+  Future<void> _closeExpiredSession(String classId) async {
+    if (_closingClassIds.contains(classId)) return;
+    _closingClassIds.add(classId);
+
+    try {
+      final session = _activeSessionData[classId];
+      final idx = _realClasses.indexWhere((c) => c.id == classId);
+
+      if (session != null && idx != -1) {
+        await _closeSessionInternal(
+          classId: classId,
+          current: _realClasses[idx],
+          sessionData: session,
+        );
+      } else {
+        await _forceCloseClassLocal(classId);
       }
 
       await fetchClasses();
-
-    }else{
-      throw Exception(
-          "Đóng điểm danh thất bại"
-      );
+    } finally {
+      _closingClassIds.remove(classId);
     }
-
   }
 
-  Future<void> deleteClass(String classId) async{
+  Future<void> deleteClass(String classId) async {
+    final headers = await _getHeaders();
 
-    final headers=await _getHeaders();
-
-    final res=await http.delete(
-        Uri.parse(
-            "$_baseUrl/classrooms/$classId"
-        ),
-        headers: headers
+    final res = await http.delete(
+      Uri.parse('$_baseUrl/classrooms/$classId'),
+      headers: headers,
     );
 
-    if(res.statusCode==200 ||
-        res.statusCode==204){
-
-      _realClasses.removeWhere(
-              (c)=>c.id==classId
-      );
-
+    if (res.statusCode == 200 || res.statusCode == 204) {
+      _realClasses.removeWhere((c) => c.id == classId);
       _cancelTimer(classId);
-
       _activeSessionData.remove(classId);
-
+      await _removeLocalOpenSession(classId);
       notifyListeners();
-
-    }else{
-      throw Exception("Xóa thất bại");
+    } else {
+      throw Exception(_extractErrorMessage(res, 'Xóa thất bại'));
     }
-
   }
 
-  Future<void> updateClass(
-      AppClassModel updated
-      ) async{
+  Future<void> updateClass(AppClassModel updated) async {
+    final idx = _realClasses.indexWhere((c) => c.id == updated.id);
 
-    final idx=
-    _realClasses.indexWhere(
-            (c)=>c.id==updated.id
-    );
-
-    if(idx!=-1){
-      _realClasses[idx]=updated;
+    if (idx != -1) {
+      _realClasses[idx] = updated;
       notifyListeners();
     }
 
     await fetchClasses();
-
   }
 
-  String getRemainingTimeText(
-      AppClassModel c
-      ){
+  String getRemainingTimeText(AppClassModel c) {
+    final remain = c.remainingAttendanceTime;
 
-    final remain=
-        c.remainingAttendanceTime;
+    if (!c.isAttendanceOpen) return 'Đã đóng';
+    if (remain == null) return 'Không rõ';
+    if (remain == Duration.zero) return 'Đã hết giờ';
 
-    if(!c.isAttendanceOpen){
-      return "Đã đóng";
-    }
+    final h = remain.inHours;
+    final m = remain.inMinutes.remainder(60);
+    final s = remain.inSeconds.remainder(60);
 
-    if(remain==null){
-      return "Không rõ";
-    }
-
-    if(remain==Duration.zero){
-      return "Đã hết giờ";
-    }
-
-    final h=remain.inHours;
-    final m=remain.inMinutes.remainder(60);
-    final s=remain.inSeconds.remainder(60);
-
-    if(h>0){
-      return "${h}h ${m}m ${s}s";
-    }
-
-    return "${m}m ${s}s";
-
+    if (h > 0) return '${h}h ${m}m ${s}s';
+    return '${m}m ${s}s';
   }
 
   @override
-  void dispose(){
+  void dispose() {
     _cancelAllTimers();
     super.dispose();
   }
-
 }

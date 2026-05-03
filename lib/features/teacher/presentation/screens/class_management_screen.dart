@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../viewmodel/class_management_viewmodel.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../app/app_routes.dart';
@@ -17,6 +18,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
   Timer? _refreshTimer;
   final TextEditingController _searchController = TextEditingController();
   String _searchKeyword = '';
+  final Set<String> _processingClassIds = {};
 
   @override
   void initState() {
@@ -27,9 +29,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
     });
 
     _refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(() {});
-      }
+      if (mounted) setState(() {});
     });
   }
 
@@ -50,6 +50,8 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
       Color bgColor,
       IconData icon,
       ) {
+    if (!context.mounted) return;
+
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
@@ -83,6 +85,87 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
           duration: const Duration(seconds: 3),
         ),
       );
+  }
+
+  Future<void> _handleCloseAttendance(
+      BuildContext context,
+      ClassManagementViewModel viewModel,
+      String classId,
+      ) async {
+    if (_processingClassIds.contains(classId)) return;
+
+    setState(() {
+      _processingClassIds.add(classId);
+    });
+
+    try {
+      await viewModel.toggleAttendance(classId, 0);
+
+      if (context.mounted) {
+        _showTopNotification(
+          context,
+          'Đóng điểm danh thành công!',
+          Colors.green,
+          Icons.check_circle,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        _showTopNotification(
+          context,
+          e.toString().replaceAll('Exception: ', ''),
+          Colors.red,
+          Icons.error_outline,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processingClassIds.remove(classId);
+        });
+      }
+    }
+  }
+
+  Future<void> _handleOpenAttendance(
+      BuildContext context,
+      ClassManagementViewModel viewModel,
+      String classId,
+      int minutes,
+      ) async {
+    if (_processingClassIds.contains(classId)) return;
+
+    setState(() {
+      _processingClassIds.add(classId);
+    });
+
+    try {
+      await viewModel.toggleAttendance(classId, minutes);
+
+      if (context.mounted) {
+        _showTopNotification(
+          context,
+          'Mở phiên điểm danh thành công!',
+          Colors.green,
+          Icons.check_circle,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        _showTopNotification(
+          context,
+          'Lỗi: ${e.toString().replaceAll("Exception: ", "")}',
+          Colors.red,
+          Icons.error_outline,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processingClassIds.remove(classId);
+        });
+      }
+    }
   }
 
   @override
@@ -161,9 +244,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
-
             if (viewModel.realClasses.isEmpty)
               Center(
                 child: Padding(
@@ -225,6 +306,9 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                     item.isAttendanceOpen &&
                         (item.remainingAttendanceTime == Duration.zero);
 
+                final bool isProcessing =
+                _processingClassIds.contains(item.id);
+
                 return Card(
                   elevation: 2,
                   margin: const EdgeInsets.only(bottom: 16),
@@ -272,7 +356,9 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                                 Icons.delete_outline,
                                 color: Colors.redAccent,
                               ),
-                              onPressed: () async {
+                              onPressed: isProcessing
+                                  ? null
+                                  : () async {
                                 try {
                                   await viewModel.deleteClass(item.id);
                                   if (context.mounted) {
@@ -288,8 +374,8 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                                     _showTopNotification(
                                       context,
                                       e.toString().replaceAll(
-                                        "Exception: ",
-                                        "",
+                                        'Exception: ',
+                                        '',
                                       ),
                                       Colors.red,
                                       Icons.error_outline,
@@ -330,46 +416,42 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                                 ),
                               ),
                             ),
-                            Switch(
+                            isProcessing
+                                ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                                : Switch(
                               value: item.isAttendanceOpen,
+                              activeColor: Colors.green,
                               onChanged: (value) async {
-                                try {
-                                  if (value) {
-                                    _showTimerDialog(
-                                      context,
-                                      viewModel,
-                                      item.id,
-                                    );
-                                  } else {
-                                    await viewModel.toggleAttendance(
-                                      item.id,
-                                      0,
-                                    );
-
-                                    if (context.mounted) {
-                                      _showTopNotification(
-                                        context,
-                                        'Đóng điểm danh thành công!',
-                                        Colors.green,
-                                        Icons.check_circle,
-                                      );
-                                    }
-                                  }
-                                } catch (e) {
-                                  if (context.mounted) {
+                                if (value) {
+                                  if (!isGpsConfigured) {
                                     _showTopNotification(
                                       context,
-                                      e.toString().replaceAll(
-                                        "Exception: ",
-                                        "",
-                                      ),
-                                      Colors.red,
-                                      Icons.error_outline,
+                                      'Hãy Set Location trước khi mở điểm danh!',
+                                      Colors.orange,
+                                      Icons.location_off,
                                     );
+                                    return;
                                   }
+
+                                  _showTimerDialog(
+                                    context,
+                                    viewModel,
+                                    item.id,
+                                  );
+                                } else {
+                                  await _handleCloseAttendance(
+                                    context,
+                                    viewModel,
+                                    item.id,
+                                  );
                                 }
                               },
-                              activeColor: Colors.green,
                             ),
                           ],
                         ),
@@ -472,18 +554,22 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                                 ),
                               ),
                             ElevatedButton.icon(
-                              onPressed: () {
+                              onPressed: isProcessing
+                                  ? null
+                                  : () {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => SetLocationScreen(
-                                      classModel: item,
-                                    ),
+                                    builder: (context) =>
+                                        SetLocationScreen(
+                                          classModel: item,
+                                        ),
                                   ),
                                 ).then((_) {
                                   if (context.mounted) {
                                     context
-                                        .read<ClassManagementViewModel>()
+                                        .read<
+                                        ClassManagementViewModel>()
                                         .fetchClasses();
                                   }
                                 });
@@ -518,7 +604,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
       ClassManagementViewModel vm,
       String classId,
       ) {
-    final controller = TextEditingController(text: "30");
+    final controller = TextEditingController(text: '30');
 
     showDialog(
       context: context,
@@ -565,27 +651,12 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
 
               Navigator.pop(ctx);
 
-              try {
-                await vm.toggleAttendance(classId, minutes);
-
-                if (context.mounted) {
-                  _showTopNotification(
-                    context,
-                    'Mở phiên điểm danh thành công!',
-                    Colors.green,
-                    Icons.check_circle,
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  _showTopNotification(
-                    context,
-                    'Lỗi: ${e.toString().replaceAll("Exception: ", "")}',
-                    Colors.red,
-                    Icons.error_outline,
-                  );
-                }
-              }
+              await _handleOpenAttendance(
+                context,
+                vm,
+                classId,
+                minutes,
+              );
             },
             child: const Text('Start Session'),
           ),

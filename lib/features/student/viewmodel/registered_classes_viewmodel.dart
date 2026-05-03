@@ -14,7 +14,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
   List<AppClassModel> _classes = [];
   List<AppClassModel> get classes => _classes;
-
   List<AppClassModel> get registeredClasses => _classes;
 
   final Map<String, Map<String, dynamic>> _sessionMap = {};
@@ -22,7 +21,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
-
     return prefs.getString("access_token") ??
         prefs.getString("token") ??
         prefs.getString("jwt") ??
@@ -32,16 +30,10 @@ class RegisteredClassesViewModel extends ChangeNotifier {
   int _getStudentId(String token) {
     try {
       final payload = token.split('.')[1];
-
       final decoded = jsonDecode(
-        utf8.decode(
-          base64Url.decode(
-            base64Url.normalize(payload),
-          ),
-        ),
+        utf8.decode(base64Url.decode(base64Url.normalize(payload))),
       );
-
-      return int.parse(decoded["sub"].toString());
+      return int.tryParse(decoded["sub"].toString()) ?? 0;
     } catch (_) {
       return 0;
     }
@@ -53,18 +45,109 @@ class RegisteredClassesViewModel extends ChangeNotifier {
     if (data is Map) {
       if (data["content"] is List) return data["content"];
       if (data["data"] is List) return data["data"];
+      if (data["result"] is List) return data["result"];
+      if (data["items"] is List) return data["items"];
 
       if (data["data"] is Map && data["data"]["content"] is List) {
         return data["data"]["content"];
+      }
+
+      if (data["result"] is Map && data["result"]["content"] is List) {
+        return data["result"]["content"];
       }
     }
 
     return [];
   }
 
+  String _text(dynamic value) {
+    return value?.toString().trim() ?? "";
+  }
+
+  String _getClassIdFromRegistration(Map<String, dynamic> m) {
+    final nested = m["classroom"] ??
+        m["classRoom"] ??
+        m["class"] ??
+        m["classes"] ??
+        m["appClass"] ??
+        m["clazz"];
+
+    if (nested is Map) {
+      final id = _text(
+        nested["id"] ??
+            nested["classId"] ??
+            nested["classroomId"] ??
+            nested["classRoomId"],
+      );
+
+      if (id.isNotEmpty && id != "0") return id;
+    }
+
+    return _text(
+      m["classId"] ??
+          m["classroomId"] ??
+          m["classRoomId"] ??
+          m["class_id"] ??
+          m["idClass"],
+    );
+  }
+
+  Map<String, dynamic>? _getClassMapFromRegistration(Map<String, dynamic> m) {
+    final nested = m["classroom"] ??
+        m["classRoom"] ??
+        m["class"] ??
+        m["classes"] ??
+        m["appClass"] ??
+        m["clazz"];
+
+    if (nested is Map) {
+      return Map<String, dynamic>.from(nested);
+    }
+
+    return null;
+  }
+
+  String _getClassIdFromClassroom(Map<String, dynamic> m) {
+    return _text(
+      m["id"] ?? m["classId"] ?? m["classroomId"] ?? m["classRoomId"],
+    );
+  }
+
+  String _getClassIdFromSession(Map<String, dynamic> m) {
+    final nested = m["classroom"] ?? m["classRoom"] ?? m["class"];
+
+    if (nested is Map) {
+      final id = _text(
+        nested["id"] ??
+            nested["classId"] ??
+            nested["classroomId"] ??
+            nested["classRoomId"],
+      );
+
+      if (id.isNotEmpty && id != "0") return id;
+    }
+
+    return _text(m["classId"] ?? m["classroomId"] ?? m["classRoomId"]);
+  }
+
+  String _getStatusFromRegistration(Map<String, dynamic> m) {
+    final status = _text(
+      m["status"] ??
+          m["registrationStatus"] ??
+          m["approveStatus"] ??
+          m["state"],
+    ).toUpperCase();
+
+    return status.isEmpty ? "PENDING" : status;
+  }
+
   bool _isApprovedStatus(String? status) {
     final s = status?.trim().toUpperCase() ?? "PENDING";
-    return s == "APPROVED" || s == "ACCEPTED" || s == "APPROVE";
+
+    return s == "APPROVED" ||
+        s == "ACCEPTED" ||
+        s == "APPROVE" ||
+        s == "APPROVED_BY_ADMIN";
   }
 
   DateTime? _parseDateTime(dynamic value) {
@@ -73,16 +156,16 @@ class RegisteredClassesViewModel extends ChangeNotifier {
     final raw = value.toString().trim();
     if (raw.isEmpty) return null;
 
-    try {
-      return DateTime.parse(raw).toLocal();
-    } catch (_) {
-      return null;
-    }
+    return DateTime.tryParse(raw)?.toLocal();
+  }
+
+  bool _isOpenStatus(dynamic status) {
+    final s = status?.toString().trim().toUpperCase() ?? "";
+    return s == "OPEN" || s == "ACTIVE" || s == "ONGOING" || s == "1";
   }
 
   bool _isSessionStillOpen(Map<String, dynamic> session) {
-    final status = session["status"]?.toString().toUpperCase() ?? "";
-    if (status != "OPEN") return false;
+    if (!_isOpenStatus(session["status"])) return false;
 
     final end = _parseDateTime(
       session["endTime"] ??
@@ -94,6 +177,35 @@ class RegisteredClassesViewModel extends ChangeNotifier {
     if (end == null) return true;
 
     return DateTime.now().isBefore(end);
+  }
+
+  AppClassModel _mapClassModel({
+    required String classId,
+    required Map<String, dynamic> m,
+  }) {
+    final title = _text(m["title"] ?? m["className"] ?? m["name"]);
+    final teacher = _text(
+      m["teacherName"] ??
+          m["teacher"]?["fullName"] ??
+          m["teacher"]?["name"],
+    );
+
+    return AppClassModel(
+      id: classId,
+      className: title.isNotEmpty ? title : "Chưa có tên lớp",
+      teacherName: teacher.isNotEmpty ? teacher : "Chưa có giảng viên",
+      description: _text(m["description"]).isNotEmpty
+          ? _text(m["description"])
+          : "Không có mô tả",
+      teacherId: _text(m["teacherId"] ?? m["teacher"]?["id"]),
+      startTime: _text(m["startDate"] ?? m["startTime"]).isNotEmpty
+          ? _text(m["startDate"] ?? m["startTime"])
+          : "-",
+      endTime: _text(m["endDate"] ?? m["endTime"]).isNotEmpty
+          ? _text(m["endDate"] ?? m["endTime"])
+          : "-",
+      isAttendanceOpen: false,
+    );
   }
 
   void _sortOpenClassToTop() {
@@ -112,13 +224,15 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       final token = await _getToken();
 
       if (token == null || token.isEmpty) {
-        throw Exception("No token");
+        _classes = [];
+        return;
       }
 
       final studentId = _getStudentId(token);
 
       if (studentId == 0) {
-        throw Exception("Invalid student id from token");
+        _classes = [];
+        return;
       }
 
       final headers = {
@@ -134,8 +248,11 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         headers: headers,
       );
 
+      debugPrint("REGISTERED STATUS: ${regRes.statusCode}");
+      debugPrint("REGISTERED BODY: ${utf8.decode(regRes.bodyBytes)}");
+
       if (regRes.statusCode == 401 || regRes.statusCode == 403) {
-        debugPrint("FETCH ERROR Unauthorized: ${regRes.statusCode}");
+        _classes = [];
         return;
       }
 
@@ -147,63 +264,74 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       final regList = _safeList(regData);
 
       final Set<String> registeredIds = {};
+      final Map<String, Map<String, dynamic>> classFromRegistration = {};
+
       _registrationStatus.clear();
 
-      for (var e in regList) {
-        final m = Map<String, dynamic>.from(e);
+      for (final raw in regList) {
+        if (raw is! Map) continue;
 
-        final id = m["classId"]?.toString() ??
-            m["classroomId"]?.toString() ??
-            m["id"]?.toString() ??
-            "";
+        final m = Map<String, dynamic>.from(raw);
+        final classId = _getClassIdFromRegistration(m);
 
-        if (id.isEmpty) continue;
+        if (classId.isEmpty || classId == "0") {
+          debugPrint("SKIP REGISTRATION - CLASS ID EMPTY: $m");
+          continue;
+        }
 
-        final status = m["status"]?.toString().toUpperCase() ?? "PENDING";
+        final status = _getStatusFromRegistration(m);
 
-        registeredIds.add(id);
-        _registrationStatus[id] = status;
+        registeredIds.add(classId);
+        _registrationStatus[classId] = status;
+
+        final nestedClass = _getClassMapFromRegistration(m);
+        if (nestedClass != null) {
+          classFromRegistration[classId] = nestedClass;
+        }
       }
+
+      debugPrint("REGISTERED CLASS IDS: $registeredIds");
+
+      final Map<String, Map<String, dynamic>> classroomMap = {};
 
       final classRes = await http.get(
         Uri.parse("$_baseUrl/classrooms?page=0&size=100"),
         headers: headers,
       );
 
-      if (classRes.statusCode == 401 || classRes.statusCode == 403) {
-        debugPrint("FETCH ERROR Unauthorized classrooms: ${classRes.statusCode}");
-        return;
-      }
+      debugPrint("CLASSROOM STATUS: ${classRes.statusCode}");
+      debugPrint("CLASSROOM BODY: ${utf8.decode(classRes.bodyBytes)}");
 
-      if (classRes.statusCode != 200) {
-        throw Exception("Load classrooms fail: ${classRes.statusCode}");
-      }
+      if (classRes.statusCode == 200) {
+        final classData = jsonDecode(utf8.decode(classRes.bodyBytes));
+        final allClasses = _safeList(classData);
 
-      final classData = jsonDecode(utf8.decode(classRes.bodyBytes));
-      final allClasses = _safeList(classData);
+        for (final raw in allClasses) {
+          if (raw is! Map) continue;
+
+          final m = Map<String, dynamic>.from(raw);
+          final classId = _getClassIdFromClassroom(m);
+
+          if (classId.isEmpty || classId == "0") continue;
+
+          classroomMap[classId] = m;
+        }
+      }
 
       _classes = [];
 
-      for (var e in allClasses) {
-        final m = Map<String, dynamic>.from(e);
+      for (final classId in registeredIds) {
+        final classMap = classroomMap[classId] ?? classFromRegistration[classId];
 
-        final id = m["classId"]?.toString() ?? m["id"]?.toString() ?? "";
-
-        if (id.isEmpty) continue;
-        if (!registeredIds.contains(id)) continue;
+        if (classMap == null) {
+          debugPrint("CLASS DATA NOT FOUND FOR REGISTERED CLASS ID: $classId");
+          continue;
+        }
 
         _classes.add(
-          AppClassModel(
-            id: id,
-            className: m["title"]?.toString() ??
-                m["className"]?.toString() ??
-                "Chưa có tên lớp",
-            teacherName: m["teacherName"]?.toString() ?? "Chưa có giảng viên",
-            description: m["description"]?.toString() ?? "Không có mô tả",
-            teacherId: m["teacherId"]?.toString() ?? "",
-            startTime: m["startDate"]?.toString() ?? "-",
-            endTime: m["endDate"]?.toString() ?? "-",
-            isAttendanceOpen: false,
+          _mapClassModel(
+            classId: classId,
+            m: classMap,
           ),
         );
       }
@@ -215,20 +343,23 @@ class RegisteredClassesViewModel extends ChangeNotifier {
         headers: headers,
       );
 
+      debugPrint("SESSION STATUS: ${sessionRes.statusCode}");
+      debugPrint("SESSION BODY: ${utf8.decode(sessionRes.bodyBytes)}");
+
       if (sessionRes.statusCode == 200) {
         final sessionData = jsonDecode(utf8.decode(sessionRes.bodyBytes));
         final sessions = _safeList(sessionData);
 
-        for (var s in sessions) {
-          final sm = Map<String, dynamic>.from(s);
+        for (final raw in sessions) {
+          if (raw is! Map) continue;
+
+          final sm = Map<String, dynamic>.from(raw);
 
           if (!_isSessionStillOpen(sm)) continue;
 
-          final classId = sm["classId"]?.toString() ??
-              sm["classroomId"]?.toString() ??
-              "";
+          final classId = _getClassIdFromSession(sm);
 
-          if (classId.isNotEmpty) {
+          if (classId.isNotEmpty && classId != "0") {
             _sessionMap[classId] = sm;
           }
         }
@@ -244,13 +375,11 @@ class RegisteredClassesViewModel extends ChangeNotifier {
 
           _classes[i] = c.copyWith(
             isAttendanceOpen: true,
-            attendanceStartTime: (s["startTime"] ??
-                s["startDateTime"] ??
-                s["attendanceStartTime"])
+            attendanceStartTime:
+            (s["startTime"] ?? s["startDateTime"] ?? s["attendanceStartTime"])
                 ?.toString(),
-            attendanceEndTime: (s["endTime"] ??
-                s["endDateTime"] ??
-                s["attendanceEndTime"])
+            attendanceEndTime:
+            (s["endTime"] ?? s["endDateTime"] ?? s["attendanceEndTime"])
                 ?.toString(),
           );
         } else {
@@ -265,7 +394,8 @@ class RegisteredClassesViewModel extends ChangeNotifier {
       updateCountdownAndCloseExpiredSessions(shouldNotify: false);
       _sortOpenClassToTop();
     } catch (e) {
-      debugPrint("FETCH ERROR $e");
+      debugPrint("FETCH REGISTERED ERROR -> $e");
+      _classes = [];
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -331,6 +461,7 @@ class RegisteredClassesViewModel extends ChangeNotifier {
     if (index == -1) return false;
 
     final c = _classes[index];
+
     if (!c.isAttendanceOpen) return false;
     if (!_sessionMap.containsKey(classId)) return false;
 
@@ -351,7 +482,8 @@ class RegisteredClassesViewModel extends ChangeNotifier {
   int? getSessionLocationId(String classId) {
     if (!isClassAttendanceAvailable(classId)) return null;
 
-    final value = _sessionMap[classId]?["locationId"];
+    final value =
+        _sessionMap[classId]?["locationId"] ?? _sessionMap[classId]?["location"]?["id"];
 
     if (value == null) return null;
     if (value is int) return value;
@@ -385,7 +517,6 @@ class RegisteredClassesViewModel extends ChangeNotifier {
     }
 
     final t = getRemainingTime(c.id);
-
     return t.isEmpty ? "Đang mở" : "Còn lại $t";
   }
 }
