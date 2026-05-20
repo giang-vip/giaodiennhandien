@@ -144,9 +144,11 @@ class ClassManagementViewModel extends ChangeNotifier {
     if (savedRoom != null && savedRoom.trim().isNotEmpty) {
       return savedRoom.trim();
     }
+
     if (savedLocation != null && savedLocation.trim().isNotEmpty) {
       return savedLocation.trim();
     }
+
     if (savedOther != null && savedOther.trim().isNotEmpty) {
       return savedOther.trim();
     }
@@ -182,7 +184,13 @@ class ClassManagementViewModel extends ChangeNotifier {
     dynamic nestedId;
     if (location is Map) nestedId = location['id'];
 
-    return _parsePositiveInt(s['locationId'] ?? nestedId);
+    return _parsePositiveInt(
+      s['locationId'] ??
+          s['location_id'] ??
+          s['roomId'] ??
+          s['room_id'] ??
+          nestedId,
+    );
   }
 
   String _extractErrorMessage(http.Response res, String fallback) {
@@ -266,6 +274,30 @@ class ClassManagementViewModel extends ChangeNotifier {
     }
 
     return null;
+  }
+
+  Future<void> _updateLocationRadius({
+    required int locationId,
+    required double radius,
+  }) async {
+    final headers = await _getHeaders();
+
+    final res = await http.put(
+      Uri.parse('$_baseUrl/locations/$locationId'),
+      headers: headers,
+      body: jsonEncode({
+        'radiusMeters': radius,
+      }),
+    );
+
+    debugPrint('UPDATE LOCATION RADIUS STATUS -> ${res.statusCode}');
+    debugPrint('UPDATE LOCATION RADIUS BODY -> ${utf8.decode(res.bodyBytes)}');
+
+    if (res.statusCode != 200 &&
+        res.statusCode != 201 &&
+        res.statusCode != 204) {
+      throw Exception(_extractErrorMessage(res, 'Cập nhật bán kính thất bại'));
+    }
   }
 
   Future<void> fetchClasses() async {
@@ -355,6 +387,7 @@ class ClassManagementViewModel extends ChangeNotifier {
 
         for (final raw in sessionList) {
           final s = Map<String, dynamic>.from(raw);
+
           if (!_isOpenStatus(s['status'])) continue;
 
           final classId = _getSessionClassId(s);
@@ -372,6 +405,8 @@ class ClassManagementViewModel extends ChangeNotifier {
           final sessionMap = {
             'sessionId': s['sessionId'] ?? s['id'] ?? s['attendanceSessionId'],
             'locationId': s['locationId'] ??
+                s['location_id'] ??
+                s['roomId'] ??
                 (s['location'] is Map ? s['location']['id'] : null),
             'title': s['title'],
             'startTime': s['startTime'] ?? s['startDateTime'],
@@ -420,7 +455,7 @@ class ClassManagementViewModel extends ChangeNotifier {
           ),
           attendanceStartTime: session['startTime']?.toString(),
           attendanceEndTime: session['endTime']?.toString(),
-          roomId: c.roomId ?? _getSessionLocationId(session)?.toString(),
+          roomId: _getSessionLocationId(session)?.toString() ?? c.roomId,
         );
 
         _scheduleAutoClose(c.id);
@@ -500,6 +535,13 @@ class ClassManagementViewModel extends ChangeNotifier {
       throw Exception('Hãy Set Location trước khi mở điểm danh.');
     }
 
+    if (current.radius != null && current.radius! > 0) {
+      await _updateLocationRadius(
+        locationId: locationId,
+        radius: current.radius!,
+      );
+    }
+
     final now = DateTime.now();
     final end = now.add(Duration(minutes: minutes));
 
@@ -577,8 +619,9 @@ class ClassManagementViewModel extends ChangeNotifier {
   }) async {
     final headers = await _getHeaders();
 
-    final sessionId =
-        sessionData['sessionId'] ?? sessionData['id'] ?? sessionData['attendanceSessionId'];
+    final sessionId = sessionData['sessionId'] ??
+        sessionData['id'] ??
+        sessionData['attendanceSessionId'];
 
     if (sessionId == null || sessionId.toString().isEmpty) {
       await _forceCloseClassLocal(classId);
@@ -631,7 +674,8 @@ class ClassManagementViewModel extends ChangeNotifier {
         bool silent = false,
       }) async {
     try {
-      final sessionId = raw['sessionId'] ?? raw['id'] ?? raw['attendanceSessionId'];
+      final sessionId =
+          raw['sessionId'] ?? raw['id'] ?? raw['attendanceSessionId'];
 
       if (sessionId == null || sessionId.toString().isEmpty) {
         await _forceCloseClassLocal(classId);
@@ -646,6 +690,7 @@ class ClassManagementViewModel extends ChangeNotifier {
 
       final locationId = _parsePositiveInt(
         raw['locationId'] ??
+            raw['location_id'] ??
             (raw['location'] is Map ? raw['location']['id'] : null),
       );
 
@@ -674,7 +719,9 @@ class ClassManagementViewModel extends ChangeNotifier {
           res.statusCode == 204) {
         await _forceCloseClassLocal(classId);
       } else {
-        throw Exception(_extractErrorMessage(res, 'Đóng session hết hạn thất bại'));
+        throw Exception(
+          _extractErrorMessage(res, 'Đóng session hết hạn thất bại'),
+        );
       }
     } catch (e) {
       if (!silent) rethrow;
@@ -770,11 +817,100 @@ class ClassManagementViewModel extends ChangeNotifier {
   }
 
   Future<void> updateClass(AppClassModel updated) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (updated.roomId != null && updated.roomId!.trim().isNotEmpty) {
+      await prefs.setString('class_${updated.id}_room', updated.roomId!.trim());
+      await prefs.setString(
+        'class_${updated.id}_location',
+        updated.roomId!.trim(),
+      );
+      await prefs.setString('location_${updated.id}', updated.roomId!.trim());
+      await prefs.setString(
+        'saved_room_id_${updated.id}',
+        updated.roomId!.trim(),
+      );
+    }
+
+    final locationId = _parsePositiveInt(updated.roomId);
+
+    if (updated.radius != null && updated.radius! > 0) {
+      await prefs.setDouble('class_${updated.id}_radius', updated.radius!);
+      await prefs.setDouble('saved_radius_${updated.id}', updated.radius!);
+
+      if (locationId != null) {
+        await _updateLocationRadius(
+          locationId: locationId,
+          radius: updated.radius!,
+        );
+      }
+    }
+
     final idx = _realClasses.indexWhere((c) => c.id == updated.id);
 
     if (idx != -1) {
       _realClasses[idx] = updated;
       notifyListeners();
+    }
+
+    if (locationId != null) {
+      final session =
+          _activeSessionData[updated.id] ?? await _loadLocalOpenSession(updated.id);
+
+      final sessionId =
+          session?['sessionId'] ?? session?['id'] ?? session?['attendanceSessionId'];
+
+      if (session != null && sessionId != null && sessionId.toString().isNotEmpty) {
+        try {
+          final headers = await _getHeaders();
+
+          final classroomId = _parsePositiveInt(updated.id);
+
+          if (classroomId != null) {
+            final body = {
+              'title': session['title'] ?? 'Attendance - ${updated.className}',
+              'startTime': session['startTime'] ??
+                  updated.attendanceStartTime ??
+                  DateTime.now().toIso8601String(),
+              'endTime': session['endTime'] ??
+                  updated.attendanceEndTime ??
+                  DateTime.now()
+                      .add(const Duration(minutes: 30))
+                      .toIso8601String(),
+              'status': 'OPEN',
+              'classId': classroomId,
+              'classroomId': classroomId,
+              'locationId': locationId,
+            };
+
+            final res = await http.put(
+              Uri.parse('$_baseUrl/sessions/$sessionId'),
+              headers: headers,
+              body: jsonEncode(body),
+            );
+
+            debugPrint('UPDATE SESSION LOCATION STATUS -> ${res.statusCode}');
+            debugPrint(
+              'UPDATE SESSION LOCATION BODY -> ${utf8.decode(res.bodyBytes)}',
+            );
+
+            if (res.statusCode == 200 ||
+                res.statusCode == 201 ||
+                res.statusCode == 204) {
+              session['locationId'] = locationId;
+              _activeSessionData[updated.id] = session;
+              await _saveLocalOpenSession(updated.id, session);
+            } else {
+              throw Exception(
+                _extractErrorMessage(res, 'Cập nhật session thất bại'),
+              );
+            }
+          }
+        } catch (e) {
+          debugPrint('UPDATE SESSION LOCATION ERROR -> $e');
+          rethrow;
+        }
+      }
     }
 
     await fetchClasses();

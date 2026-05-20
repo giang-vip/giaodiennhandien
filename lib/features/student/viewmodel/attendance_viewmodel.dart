@@ -36,9 +36,9 @@ class AttendanceViewModel extends ChangeNotifier {
   String _locationStatusMessage = 'Đang chờ kiểm tra vị trí...';
   String get locationStatusMessage => _locationStatusMessage;
 
-  // ===============================
-  // BASE64
-  // ===============================
+  int _latestLocationId = 0;
+  int get latestLocationId => _latestLocationId;
+
   Future<String> _imageToBase64(File imageFile) async {
     List<int> bytes = await imageFile.readAsBytes();
     return base64Encode(bytes);
@@ -50,52 +50,21 @@ class AttendanceViewModel extends ChangeNotifier {
     final response = await http.post(
       Uri.parse(ApiConstants.faceRecognize),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({"image": base64,
-        "studentId": studentId,   // thêm dòng này
+      body: jsonEncode({
+        "image": base64,
+        "studentId": studentId,
       }),
     );
-
-    print("FACE STATUS: ${response.statusCode}");
-    print("FACE BODY: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception("Lỗi AI nhận diện khuôn mặt");
     }
 
-    // final data = jsonDecode(response.body);
-    //
-    // final name = data['name'];
-    // final confidence = (data['confidence'] as num).toDouble();
-    //
-    // print("RESULT: $name - $confidence");
-    //
-    // if (name == "Unknown" || confidence < 0.6) {
-    //   throw Exception("Không nhận diện được khuôn mặt");
-    // }
-    //
+    final aiData = jsonDecode(response.body);
+    final bool isSuccess = aiData['isSuccess'] == true;
 
-    // if (name.toString() != studentId) {
-    //   throw Exception("Khuôn mặt không khớp tài khoản");
-    // }
-    if (response.statusCode == 200) {
-      var aiData = jsonDecode(response.body);
-      bool isSuccess = aiData['isSuccess'] == true;
-      // if (!aiData['isSuccess']) {
-      //là sao nhẻ
-      // if (!isSuccess) {
-      //   throw Exception(aiData['message']);
-      // }
-      if (isSuccess) {
-
-        // Ví dụ hiển thị SnackBar
-        // ScaffoldMessenger.of(context).showSnackBar(
-        //   SnackBar(content: Text(aiData['message']))
-        // );
-      } else {
-        throw Exception(aiData['message']);
-      }
-    } else {
-      throw Exception("Không thể kết nối AI Server (Lỗi ${response .statusCode})");
+    if (!isSuccess) {
+      throw Exception(aiData['message'] ?? 'Khuôn mặt không khớp');
     }
   }
 
@@ -106,21 +75,64 @@ class AttendanceViewModel extends ChangeNotifier {
     return double.tryParse(value.toString()) ?? defaultValue;
   }
 
+  int _toInt(dynamic value, {int defaultValue = 0}) {
+    if (value == null) return defaultValue;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    return int.tryParse(value.toString()) ?? defaultValue;
+  }
+
+  String _text(dynamic value) => value?.toString().trim() ?? '';
+
+  List<dynamic> _safeList(dynamic data) {
+    if (data is List) return data;
+
+    if (data is Map) {
+      if (data['content'] is List) return data['content'];
+      if (data['data'] is List) return data['data'];
+      if (data['result'] is List) return data['result'];
+      if (data['items'] is List) return data['items'];
+
+      if (data['data'] is Map && data['data']['content'] is List) {
+        return data['data']['content'];
+      }
+
+      if (data['result'] is Map && data['result']['content'] is List) {
+        return data['result']['content'];
+      }
+    }
+
+    return [];
+  }
+
   Map<String, dynamic> _extractData(dynamic responseData) {
-    if (responseData is Map && responseData['data'] != null) {
+    if (responseData is Map && responseData['data'] is Map) {
       return Map<String, dynamic>.from(responseData['data']);
     }
+
+    if (responseData is Map && responseData['result'] is Map) {
+      return Map<String, dynamic>.from(responseData['result']);
+    }
+
     return Map<String, dynamic>.from(responseData);
   }
 
-  // ===============================
-  // LOCATION
-  // ===============================
+  Future<String> _getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    return prefs.getString('access_token') ??
+        prefs.getString('token') ??
+        prefs.getString('jwt') ??
+        prefs.getString('accessToken') ??
+        '';
+  }
+
   Future<void> fetchCurrentLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) throw Exception('Vui lòng bật GPS');
 
     LocationPermission permission = await Geolocator.checkPermission();
+
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
@@ -139,6 +151,7 @@ class AttendanceViewModel extends ChangeNotifier {
 
   Future<void> pickImageFromCamera() async {
     final picker = ImagePicker();
+
     final pickedFile = await picker.pickImage(
       source: ImageSource.camera,
       preferredCameraDevice: CameraDevice.front,
@@ -150,18 +163,303 @@ class AttendanceViewModel extends ChangeNotifier {
     }
   }
 
+  int _extractLocationIdFromClass(Map<String, dynamic> data) {
+    final direct = _toInt(
+      data['roomId'] ??
+          data['locationId'] ??
+          data['location_id'] ??
+          data['room_id'],
+    );
+
+    if (direct > 0) return direct;
+
+    final location = data['location'] ?? data['room'];
+
+    if (location is Map) {
+      final nestedId = _toInt(location['id'] ?? location['locationId']);
+      if (nestedId > 0) return nestedId;
+    }
+
+    final locationIds = data['locationIds'];
+
+    if (locationIds is List && locationIds.isNotEmpty) {
+      final id = _toInt(locationIds.first);
+      if (id > 0) return id;
+    }
+
+    final locations = data['locations'];
+
+    if (locations is List && locations.isNotEmpty) {
+      final first = locations.first;
+
+      if (first is Map) {
+        final id = _toInt(first['id'] ?? first['locationId']);
+        if (id > 0) return id;
+      }
+
+      final id = _toInt(first);
+      if (id > 0) return id;
+    }
+
+    return 0;
+  }
+
+  int _extractLocationIdFromSession(Map<String, dynamic> data) {
+    final direct = _toInt(
+      data['locationId'] ??
+          data['location_id'] ??
+          data['roomId'] ??
+          data['room_id'],
+    );
+
+    if (direct > 0) return direct;
+
+    final location = data['location'] ?? data['room'];
+
+    if (location is Map) {
+      final id = _toInt(location['id'] ?? location['locationId']);
+      if (id > 0) return id;
+    }
+
+    return 0;
+  }
+
+  String _extractClassIdFromClass(Map<String, dynamic> data) {
+    return _text(
+      data['id'] ??
+          data['classId'] ??
+          data['classroomId'] ??
+          data['classRoomId'],
+    );
+  }
+
+  String _extractClassIdFromSession(Map<String, dynamic> data) {
+    return _text(
+      data['classroomId'] ??
+          data['classId'] ??
+          data['classRoomId'] ??
+          data['class_id'],
+    );
+  }
+
+  bool _isOpenStatus(dynamic status) {
+    final s = status?.toString().trim().toUpperCase() ?? '';
+    return s == 'OPEN' || s == 'ACTIVE' || s == 'ONGOING' || s == '1';
+  }
+
+  DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    final raw = value.toString().trim();
+    if (raw.isEmpty) return null;
+    return DateTime.tryParse(raw)?.toLocal();
+  }
+
+  bool _isSessionStillOpen(Map<String, dynamic> session) {
+    if (!_isOpenStatus(session['status'])) return false;
+
+    final end = _parseDateTime(
+      session['endTime'] ??
+          session['endDateTime'] ??
+          session['attendanceEndTime'],
+    );
+
+    if (end == null) return true;
+
+    return DateTime.now().isBefore(end);
+  }
+
+  Future<int> _fetchLatestClassLocationId({
+    required String classId,
+    required String token,
+  }) async {
+    if (classId.trim().isEmpty || classId == '0') return 0;
+
+    final urls = [
+      '$_baseUrl/classrooms/$classId',
+      '$_baseUrl/classrooms?page=0&size=500',
+    ];
+
+    for (final url in urls) {
+      try {
+        final response = await http.get(
+          Uri.parse(url),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+          },
+        );
+
+        debugPrint('LATEST CLASS URL -> $url');
+        debugPrint('LATEST CLASS STATUS -> ${response.statusCode}');
+        debugPrint('LATEST CLASS BODY -> ${utf8.decode(response.bodyBytes)}');
+
+        if (response.statusCode != 200) continue;
+
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+        if (url.contains('?')) {
+          final list = _safeList(decoded);
+
+          for (final raw in list) {
+            if (raw is! Map) continue;
+
+            final map = Map<String, dynamic>.from(raw);
+            final id = _extractClassIdFromClass(map);
+
+            if (id == classId) {
+              final locationId = _extractLocationIdFromClass(map);
+              if (locationId > 0) return locationId;
+            }
+          }
+        } else {
+          final data = _extractData(decoded);
+          final locationId = _extractLocationIdFromClass(data);
+          if (locationId > 0) return locationId;
+        }
+      } catch (e) {
+        debugPrint('FETCH LATEST CLASS LOCATION ERROR -> $e');
+      }
+    }
+
+    return 0;
+  }
+
+  Future<int> _fetchSessionLocationId({
+    required int sessionId,
+    required String token,
+  }) async {
+    if (sessionId <= 0) return 0;
+
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/sessions/$sessionId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      debugPrint('SESSION DETAIL STATUS -> ${response.statusCode}');
+      debugPrint('SESSION DETAIL BODY -> ${utf8.decode(response.bodyBytes)}');
+
+      if (response.statusCode != 200) return 0;
+
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final data = _extractData(decoded);
+
+      return _extractLocationIdFromSession(data);
+    } catch (e) {
+      debugPrint('FETCH SESSION LOCATION ERROR -> $e');
+      return 0;
+    }
+  }
+
+  Future<int> _fetchOpenSessionLocationIdByClass({
+    required String classId,
+    required String token,
+  }) async {
+    if (classId.trim().isEmpty || classId == '0') return 0;
+
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/sessions'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      debugPrint('OPEN SESSION LIST STATUS -> ${response.statusCode}');
+      debugPrint('OPEN SESSION LIST BODY -> ${utf8.decode(response.bodyBytes)}');
+
+      if (response.statusCode != 200) return 0;
+
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final list = _safeList(decoded);
+
+      Map<String, dynamic>? newestOpenSession;
+
+      for (final raw in list) {
+        if (raw is! Map) continue;
+
+        final session = Map<String, dynamic>.from(raw);
+        final sidClassId = _extractClassIdFromSession(session);
+
+        if (sidClassId != classId) continue;
+        if (!_isSessionStillOpen(session)) continue;
+
+        if (newestOpenSession == null) {
+          newestOpenSession = session;
+          continue;
+        }
+
+        final currentStart = _parseDateTime(session['startTime']);
+        final oldStart = _parseDateTime(newestOpenSession['startTime']);
+
+        if (currentStart != null &&
+            oldStart != null &&
+            currentStart.isAfter(oldStart)) {
+          newestOpenSession = session;
+        }
+      }
+
+      if (newestOpenSession == null) return 0;
+
+      return _extractLocationIdFromSession(newestOpenSession);
+    } catch (e) {
+      debugPrint('FETCH OPEN SESSION LOCATION ERROR -> $e');
+      return 0;
+    }
+  }
+
+  Future<int> _resolveLatestLocationId({
+    required int sessionId,
+    required String classId,
+    required int fallbackLocationId,
+    required String token,
+  }) async {
+    final sessionLocationId = await _fetchSessionLocationId(
+      sessionId: sessionId,
+      token: token,
+    );
+
+    if (sessionLocationId > 0) return sessionLocationId;
+
+    final openSessionLocationId = await _fetchOpenSessionLocationIdByClass(
+      classId: classId,
+      token: token,
+    );
+
+    if (openSessionLocationId > 0) return openSessionLocationId;
+
+    final classLocationId = await _fetchLatestClassLocationId(
+      classId: classId,
+      token: token,
+    );
+
+    if (classLocationId > 0) return classLocationId;
+
+    return fallbackLocationId;
+  }
+
   Future<Map<String, double>> _fetchClassLocation(
       int locationId,
       String token,
       ) async {
-
     final response = await http.get(
       Uri.parse('$_baseUrl/locations/$locationId'),
-      headers: {'Authorization': 'Bearer $token'},
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+      },
     );
 
+    debugPrint('LOCATION DETAIL ID -> $locationId');
+    debugPrint('LOCATION DETAIL STATUS -> ${response.statusCode}');
+    debugPrint('LOCATION DETAIL BODY -> ${utf8.decode(response.bodyBytes)}');
+
     if (response.statusCode != 200) {
-      throw Exception("Không lấy được location");
+      throw Exception("Không lấy được location mới nhất");
     }
 
     final jsonData = jsonDecode(utf8.decode(response.bodyBytes));
@@ -171,6 +469,10 @@ class AttendanceViewModel extends ChangeNotifier {
     final lon = _toDouble(data['longitude']);
     final radius = _toDouble(data['radiusMeters'], defaultValue: 50);
 
+    if (lat == 0 || lon == 0) {
+      throw Exception("Location không hợp lệ");
+    }
+
     return {
       "lat": lat,
       "lon": lon,
@@ -178,15 +480,37 @@ class AttendanceViewModel extends ChangeNotifier {
     };
   }
 
-  Future<void> prepareLocationCheck(int locationId) async {
+  Future<int> prepareLocationCheck({
+    required int sessionId,
+    required String classId,
+    required int fallbackLocationId,
+  }) async {
     _isCheckingLocation = true;
+    _isWithinAllowedArea = null;
+    _locationStatusMessage = 'Đang lấy vị trí phòng mới nhất...';
     notifyListeners();
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token') ?? '';
+      final token = await _getToken();
 
-      _classLocation = await _fetchClassLocation(locationId, token);
+      if (token.isEmpty) {
+        throw Exception('Bạn chưa đăng nhập');
+      }
+
+      final latestLocationId = await _resolveLatestLocationId(
+        sessionId: sessionId,
+        classId: classId,
+        fallbackLocationId: fallbackLocationId,
+        token: token,
+      );
+
+      if (latestLocationId <= 0) {
+        throw Exception('Buổi học này chưa được cấu hình phòng học');
+      }
+
+      _latestLocationId = latestLocationId;
+
+      _classLocation = await _fetchClassLocation(latestLocationId, token);
       _allowedRadius = _classLocation!["radius"];
 
       await fetchCurrentLocation();
@@ -202,33 +526,42 @@ class AttendanceViewModel extends ChangeNotifier {
       _isWithinAllowedArea = distance <= _allowedRadius!;
 
       _locationStatusMessage = _isWithinAllowedArea!
-          ? "Đúng vị trí"
-          : "Sai vị trí";
+          ? "Đúng vị trí phòng admin đang đặt"
+          : "Sai vị trí phòng admin đang đặt";
 
+      return latestLocationId;
     } finally {
       _isCheckingLocation = false;
       notifyListeners();
     }
   }
 
-  Future<bool> checkIn(
-      int sessionId,
-      int locationId,
-      String studentId,
-      ) async {
-
+  Future<bool> checkIn({
+    required int sessionId,
+    required String classId,
+    required int fallbackLocationId,
+    required String studentId,
+  }) async {
     if (_selectedImage == null) throw Exception("Chưa chụp ảnh");
-    if (_isWithinAllowedArea != true) throw Exception("Sai vị trí");
+
+    final latestLocationId = await prepareLocationCheck(
+      sessionId: sessionId,
+      classId: classId,
+      fallbackLocationId: fallbackLocationId,
+    );
+
+    if (_isWithinAllowedArea != true) {
+      throw Exception("Sai vị trí phòng admin đang đặt");
+    }
 
     _isLoading = true;
     notifyListeners();
 
     try {
-      // FACE VERIFY TRƯỚC ****************_________________************************************************
-      // await _verifyFace(studentId);
+      await _verifyFace(studentId);
 
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token') ?? '';
+
+      final token = await _getToken();
 
       final request = http.MultipartRequest(
         'POST',
@@ -237,16 +570,16 @@ class AttendanceViewModel extends ChangeNotifier {
 
       request.headers['Authorization'] = 'Bearer $token';
       request.fields['sessionId'] = sessionId.toString();
+      request.fields['locationId'] = latestLocationId.toString();
       request.fields['gpsLat'] = _currentPosition!.latitude.toString();
       request.fields['gpsLng'] = _currentPosition!.longitude.toString();
-      print("CheckIn sessionId: $sessionId");
-      print("GPS: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}");
 
-
-      request.files.add(await http.MultipartFile.fromPath(
-        'faceImage',
-        _selectedImage!.path,
-      ));
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'faceImage',
+          _selectedImage!.path,
+        ),
+      );
 
       final response = await request.send();
       final body = await response.stream.bytesToString();
@@ -281,7 +614,6 @@ class AttendanceViewModel extends ChangeNotifier {
       } else {
         throw Exception("Không thể kết nối AI Server (Lỗi ${response.statusCode})");
       }
-
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -295,6 +627,8 @@ class AttendanceViewModel extends ChangeNotifier {
     _distanceToClass = null;
     _allowedRadius = null;
     _isWithinAllowedArea = null;
+    _latestLocationId = 0;
+    _locationStatusMessage = 'Đang chờ kiểm tra vị trí...';
     notifyListeners();
   }
 }

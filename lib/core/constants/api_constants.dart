@@ -5,7 +5,8 @@ class ApiConstants {
   static const bool usePhysicalDevice = true;
 
   // IP Wi-Fi thật của máy tính (cho điện thoại thật truy cập)
-  static const String physicalDeviceIp = '192.168.1.197';
+
+  static const String physicalDeviceIp = '192.168.137.1';
 
   static const String port = '8081';
 

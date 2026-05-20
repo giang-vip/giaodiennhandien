@@ -12,7 +12,9 @@ class TeacherHomeViewModel extends ChangeNotifier {
 
   int totalClasses = 0;
   int openClasses = 0;
-  String teacherName = 'Teacher';
+  int totalStudents = 0;
+  String teacherName = 'Giáo viên';
+  String teacherEmail = '';
 
   List<Map<String, dynamic>> teacherClasses = [];
 
@@ -93,6 +95,14 @@ class TeacherHomeViewModel extends ChangeNotifier {
         session['classroom']?['classId']?.toString();
   }
 
+  int _calculateTotalStudents(List<Map<String, dynamic>> classes) {
+    int total = 0;
+    for (var classItem in classes) {
+      total += classItem['studentCount'] as int? ?? 0;
+    }
+    return total;
+  }
+
   Future<void> fetchDashboardData() async {
     _isLoading = true;
     notifyListeners();
@@ -104,8 +114,9 @@ class TeacherHomeViewModel extends ChangeNotifier {
       if (token == null || token.isEmpty) {
         totalClasses = 0;
         openClasses = 0;
+        totalStudents = 0;
         teacherClasses = [];
-        teacherName = 'Teacher';
+        teacherName = 'Giáo viên';
         return;
       }
 
@@ -113,8 +124,9 @@ class TeacherHomeViewModel extends ChangeNotifier {
       if (!isValid) {
         totalClasses = 0;
         openClasses = 0;
+        totalStudents = 0;
         teacherClasses = [];
-        teacherName = 'Teacher';
+        teacherName = 'Giáo viên';
         return;
       }
 
@@ -123,7 +135,9 @@ class TeacherHomeViewModel extends ChangeNotifier {
       teacherName =
           jwtData['username']?.toString() ??
               jwtData['fullName']?.toString() ??
-              'Teacher';
+              jwtData['name']?.toString() ??
+              'Giáo viên';
+      teacherEmail = jwtData['email']?.toString() ?? '';
 
       final headers = {
         'Authorization': 'Bearer $token',
@@ -144,6 +158,7 @@ class TeacherHomeViewModel extends ChangeNotifier {
         await prefs.clear();
         totalClasses = 0;
         openClasses = 0;
+        totalStudents = 0;
         teacherClasses = [];
         return;
       }
@@ -193,6 +208,8 @@ class TeacherHomeViewModel extends ChangeNotifier {
             'description': item['description'] ?? '',
             'startDate': item['startDate']?.toString() ?? 'N/A',
             'endDate': item['endDate']?.toString() ?? 'N/A',
+            'studentCount': item['studentCount'] as int? ?? 0,
+            'maxStudents': item['maxStudents'] as int? ?? 0,
             'isOpen': uniqueOpenClasses.contains(classId),
           };
         }).toList();
@@ -202,17 +219,21 @@ class TeacherHomeViewModel extends ChangeNotifier {
           final bOpen = b['isOpen'] == true ? 1 : 0;
           return bOpen.compareTo(aOpen);
         });
+
+        totalStudents = _calculateTotalStudents(teacherClasses);
       } else {
         totalClasses = 0;
         openClasses = 0;
+        totalStudents = 0;
         teacherClasses = [];
       }
     } catch (e) {
       totalClasses = 0;
       openClasses = 0;
+      totalStudents = 0;
       teacherClasses = [];
-      teacherName = 'Teacher';
-      debugPrint('LỖI DATA DASHBOARD: $e');
+      teacherName = 'Giáo viên';
+      debugPrint('[v0] LỖI DATA DASHBOARD: $e');
     } finally {
       _isLoading = false;
       notifyListeners();

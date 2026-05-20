@@ -21,15 +21,13 @@ class StudentStatsViewModel extends ChangeNotifier {
   String get avgAttendance {
     if (_statsList.isEmpty) return "0%";
 
-    double totalPerc = _statsList.fold(
+    final total = _statsList.fold<double>(
       0,
           (sum, item) => sum + item.percent,
     );
 
-    return "${(totalPerc / _statsList.length).toStringAsFixed(0)}%";
+    return "${(total / _statsList.length).toStringAsFixed(0)}%";
   }
-
-  // ================= TOKEN =================
 
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -40,8 +38,6 @@ class StudentStatsViewModel extends ChangeNotifier {
         prefs.getString("accessToken");
   }
 
-  // ================= SAFE PARSE =================
-
   List<dynamic> _safeList(dynamic data) {
     if (data is List) return data;
 
@@ -49,6 +45,7 @@ class StudentStatsViewModel extends ChangeNotifier {
       if (data["content"] is List) return data["content"];
       if (data["data"] is List) return data["data"];
       if (data["result"] is List) return data["result"];
+      if (data["items"] is List) return data["items"];
       if (data["records"] is List) return data["records"];
       if (data["attendanceRecords"] is List) return data["attendanceRecords"];
 
@@ -56,97 +53,30 @@ class StudentStatsViewModel extends ChangeNotifier {
         final inner = data["data"];
         if (inner["content"] is List) return inner["content"];
         if (inner["records"] is List) return inner["records"];
-        if (inner["attendanceRecords"] is List) return inner["attendanceRecords"];
+        if (inner["items"] is List) return inner["items"];
+        if (inner["attendanceRecords"] is List) {
+          return inner["attendanceRecords"];
+        }
+      }
+
+      if (data["result"] is Map) {
+        final inner = data["result"];
+        if (inner["content"] is List) return inner["content"];
+        if (inner["records"] is List) return inner["records"];
+        if (inner["items"] is List) return inner["items"];
+        if (inner["attendanceRecords"] is List) {
+          return inner["attendanceRecords"];
+        }
       }
     }
 
     return [];
   }
 
-  String _readString(dynamic value, String defaultValue) {
+  String _text(dynamic value, [String defaultValue = ""]) {
     if (value == null) return defaultValue;
     final text = value.toString().trim();
     return text.isEmpty ? defaultValue : text;
-  }
-
-  String _getStudentIdFromRecord(Map<String, dynamic> item) {
-    final user = item["user"];
-    final student = item["student"];
-    final studentDto = item["studentDto"];
-    final userDto = item["userDto"];
-
-    if (user is Map && user["id"] != null) {
-      return user["id"].toString();
-    }
-
-    if (student is Map && student["id"] != null) {
-      return student["id"].toString();
-    }
-
-    if (studentDto is Map && studentDto["id"] != null) {
-      return studentDto["id"].toString();
-    }
-
-    if (userDto is Map && userDto["id"] != null) {
-      return userDto["id"].toString();
-    }
-
-    return item["userId"]?.toString() ??
-        item["studentId"]?.toString() ??
-        item["student_id"]?.toString() ??
-        item["id"]?.toString() ??
-        "0";
-  }
-
-  String _getStudentNameFromRecord(Map<String, dynamic> item) {
-    final user = item["user"];
-    final student = item["student"];
-    final studentDto = item["studentDto"];
-    final userDto = item["userDto"];
-
-    if (user is Map) {
-      final name = user["fullName"] ?? user["name"] ?? user["username"];
-      if (name != null && name.toString().trim().isNotEmpty) {
-        return name.toString();
-      }
-    }
-
-    if (student is Map) {
-      final name = student["fullName"] ?? student["name"] ?? student["username"];
-      if (name != null && name.toString().trim().isNotEmpty) {
-        return name.toString();
-      }
-    }
-
-    if (studentDto is Map) {
-      final name = studentDto["fullName"] ?? studentDto["name"] ?? studentDto["username"];
-      if (name != null && name.toString().trim().isNotEmpty) {
-        return name.toString();
-      }
-    }
-
-    if (userDto is Map) {
-      final name = userDto["fullName"] ?? userDto["name"] ?? userDto["username"];
-      if (name != null && name.toString().trim().isNotEmpty) {
-        return name.toString();
-      }
-    }
-
-    return _readString(
-      item["fullName"] ?? item["studentName"] ?? item["userName"] ?? item["username"],
-      "Sinh viên ẩn danh",
-    );
-  }
-
-  String _getStatusFromRecord(Map<String, dynamic> item) {
-    return _readString(
-      item["recordStatus"] ??
-          item["attendanceStatus"] ??
-          item["status"] ??
-          item["state"] ??
-          item["result"],
-      "UNKNOWN",
-    ).toUpperCase();
   }
 
   bool _isPresent(String status) {
@@ -156,13 +86,222 @@ class StudentStatsViewModel extends ChangeNotifier {
         s == "CHECKED_IN" ||
         s == "ATTENDED" ||
         s == "SUCCESS" ||
+        s == "VALID" ||
+        s == "DONE" ||
         s == "1" ||
         s == "TRUE";
   }
 
-  // =========================================================================
-  // 1. GỌI API LẤY DANH SÁCH ĐIỂM DANH VÀ THỐNG KÊ THEO LỚP
-  // =========================================================================
+  String _getStatus(Map<String, dynamic> item) {
+    return _text(
+      item["recordStatus"] ??
+          item["attendanceStatus"] ??
+          item["status"] ??
+          item["state"] ??
+          item["result"],
+      "UNKNOWN",
+    ).toUpperCase();
+  }
+
+  String _getStudentId(Map<String, dynamic> item) {
+    final nested = item["student"] ??
+        item["user"] ??
+        item["studentDto"] ??
+        item["userDto"] ??
+        item["account"];
+
+    if (nested is Map) {
+      final id = _text(
+        nested["id"] ??
+            nested["studentId"] ??
+            nested["userId"] ??
+            nested["accountId"],
+      );
+
+      if (id.isNotEmpty && id != "0") return id;
+    }
+
+    return _text(
+      item["studentId"] ??
+          item["userId"] ??
+          item["accountId"] ??
+          item["student_id"] ??
+          item["id"],
+      "0",
+    );
+  }
+
+  String _getStudentName(Map<String, dynamic> item) {
+    final nested = item["student"] ??
+        item["user"] ??
+        item["studentDto"] ??
+        item["userDto"] ??
+        item["account"];
+
+    if (nested is Map) {
+      final name = _text(
+        nested["fullName"] ??
+            nested["name"] ??
+            nested["username"] ??
+            nested["email"],
+      );
+
+      if (name.isNotEmpty) return name;
+    }
+
+    return _text(
+      item["studentName"] ??
+          item["fullName"] ??
+          item["userName"] ??
+          item["username"] ??
+          item["email"],
+      "Sinh viên chưa rõ tên",
+    );
+  }
+
+  String _getClassIdFromRegistration(Map<String, dynamic> item) {
+    final nested = item["classroom"] ??
+        item["classRoom"] ??
+        item["class"] ??
+        item["clazz"];
+
+    if (nested is Map) {
+      final id = _text(
+        nested["id"] ??
+            nested["classId"] ??
+            nested["classroomId"] ??
+            nested["classRoomId"],
+      );
+
+      if (id.isNotEmpty && id != "0") return id;
+    }
+
+    return _text(
+      item["classId"] ??
+          item["classroomId"] ??
+          item["classRoomId"] ??
+          item["class_id"],
+    );
+  }
+
+  String _getRegistrationStatus(Map<String, dynamic> item) {
+    return _text(
+      item["status"] ??
+          item["registrationStatus"] ??
+          item["approveStatus"] ??
+          item["state"] ??
+          item["approvalStatus"],
+      "PENDING",
+    ).toUpperCase();
+  }
+
+  bool _isAcceptedRegistration(String status) {
+    final s = status.toUpperCase();
+
+    return s == "ACCEPTED" ||
+        s == "APPROVED" ||
+        s == "APPROVE" ||
+        s == "APPROVED_BY_ADMIN" ||
+        s == "ACTIVE" ||
+        s == "JOINED";
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchAcceptedStudents({
+    required String classId,
+    required Map<String, String> headers,
+  }) async {
+    final result = <Map<String, dynamic>>[];
+
+    final urls = [
+      "$_baseUrl/class-registrations/$classId/students/status?page=0&size=500&status=ACCEPTED",
+      "$_baseUrl/class-registrations/$classId/students/status?page=0&size=500&status=APPROVED",
+      "$_baseUrl/class-registrations/class/$classId?page=0&size=500",
+      "$_baseUrl/class-registrations?page=0&size=500",
+    ];
+
+    for (final url in urls) {
+      try {
+        final res = await http.get(Uri.parse(url), headers: headers);
+
+        debugPrint("STATS REG URL: $url");
+        debugPrint("STATS REG STATUS: ${res.statusCode}");
+        debugPrint("STATS REG BODY: ${utf8.decode(res.bodyBytes)}");
+
+        if (res.statusCode != 200) continue;
+
+        final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+        final list = _safeList(decoded);
+
+        for (final raw in list) {
+          if (raw is! Map) continue;
+
+          final item = Map<String, dynamic>.from(raw);
+
+          final regClassId = _getClassIdFromRegistration(item);
+          if (regClassId.isNotEmpty && regClassId != classId) continue;
+
+          final status = _getRegistrationStatus(item);
+          if (!_isAcceptedRegistration(status)) continue;
+
+          final studentId = _getStudentId(item);
+          if (studentId == "0") continue;
+
+          result.add(item);
+        }
+      } catch (e) {
+        debugPrint("STATS REG ERROR: $e");
+      }
+    }
+
+    final unique = <String, Map<String, dynamic>>{};
+
+    for (final item in result) {
+      final id = _getStudentId(item);
+      unique[id] = item;
+    }
+
+    return unique.values.toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchAttendanceRecords({
+    required String classId,
+    required Map<String, String> headers,
+  }) async {
+    final urls = [
+      "$_baseUrl/attendance/class/$classId",
+      "$_baseUrl/attendance/classes/$classId",
+      "$_baseUrl/attendance/records/class/$classId",
+      "$_baseUrl/attendance?classId=$classId&page=0&size=500",
+    ];
+
+    final result = <Map<String, dynamic>>[];
+
+    for (final url in urls) {
+      try {
+        final res = await http.get(Uri.parse(url), headers: headers);
+
+        debugPrint("STATS ATTENDANCE URL: $url");
+        debugPrint("STATS ATTENDANCE STATUS: ${res.statusCode}");
+        debugPrint("STATS ATTENDANCE BODY: ${utf8.decode(res.bodyBytes)}");
+
+        if (res.statusCode != 200) continue;
+
+        final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+        final list = _safeList(decoded);
+
+        for (final raw in list) {
+          if (raw is! Map) continue;
+          result.add(Map<String, dynamic>.from(raw));
+        }
+
+        if (result.isNotEmpty) break;
+      } catch (e) {
+        debugPrint("STATS ATTENDANCE ERROR: $e");
+      }
+    }
+
+    return result;
+  }
 
   Future<void> fetchClassStats(String classId) async {
     _isLoading = true;
@@ -183,67 +322,52 @@ class StudentStatsViewModel extends ChangeNotifier {
         "Accept": "application/json",
       };
 
-      // API thống kê theo lớp.
-      // Nếu backend của bạn dùng endpoint khác thì chỉ cần đổi dòng này.
-      final url = Uri.parse("$_baseUrl/attendance/class/$classId");
+      final acceptedStudents = await _fetchAcceptedStudents(
+        classId: classId,
+        headers: headers,
+      );
 
-      debugPrint("\n================= BẮT ĐẦU GỌI API THỐNG KÊ LỚP =================");
-      debugPrint("CLASS ID: $classId");
-      debugPrint("GỌI LINK: $url");
-
-      final response = await http.get(url, headers: headers);
-
-      debugPrint("HTTP STATUS: ${response.statusCode}");
-      debugPrint("DỮ LIỆU TỪ BACKEND TRẢ VỀ:");
-      debugPrint(utf8.decode(response.bodyBytes));
-      debugPrint("=================================================================\n");
-
-      if (response.statusCode == 401 || response.statusCode == 403) {
-        debugPrint("STATS ERROR: Token hết hạn hoặc không có quyền xem thống kê");
-        _statsList = [];
-        return;
-      }
-
-      if (response.statusCode == 404) {
-        debugPrint("STATS ERROR 404: API không tồn tại hoặc chưa có dữ liệu điểm danh cho lớp này");
-        _statsList = [];
-        return;
-      }
-
-      if (response.statusCode != 200) {
-        debugPrint("STATS ERROR: Backend trả về mã ${response.statusCode}");
-        _statsList = [];
-        return;
-      }
-
-      final data = jsonDecode(utf8.decode(response.bodyBytes));
-      final content = _safeList(data);
+      final attendanceRecords = await _fetchAttendanceRecords(
+        classId: classId,
+        headers: headers,
+      );
 
       final Map<String, StudentStatModel> mapStats = {};
 
-      for (final rawItem in content) {
-        if (rawItem is! Map) continue;
+      for (final item in acceptedStudents) {
+        final studentId = _getStudentId(item);
+        final studentName = _getStudentName(item);
 
-        final item = Map<String, dynamic>.from(rawItem);
-
-        final uid = _getStudentIdFromRecord(item);
-        final name = _getStudentNameFromRecord(item);
-        final status = _getStatusFromRecord(item);
-
-        if (uid == "0") continue;
+        if (studentId == "0") continue;
 
         mapStats.putIfAbsent(
-          uid,
+          studentId,
               () => StudentStatModel(
-            studentName: name,
-            studentId: uid,
+            studentId: studentId,
+            studentName: studentName,
+          ),
+        );
+      }
+
+      for (final item in attendanceRecords) {
+        final studentId = _getStudentId(item);
+        final studentName = _getStudentName(item);
+        final status = _getStatus(item);
+
+        if (studentId == "0") continue;
+
+        mapStats.putIfAbsent(
+          studentId,
+              () => StudentStatModel(
+            studentId: studentId,
+            studentName: studentName,
           ),
         );
 
         if (_isPresent(status)) {
-          mapStats[uid]!.present++;
+          mapStats[studentId]!.present++;
         } else {
-          mapStats[uid]!.absent++;
+          mapStats[studentId]!.absent++;
         }
       }
 
@@ -260,10 +384,6 @@ class StudentStatsViewModel extends ChangeNotifier {
     }
   }
 
-  // =========================================================================
-  // 2. HÀM TẢI FILE EXCEL
-  // =========================================================================
-
   Future<void> downloadExcel(String classId) async {
     try {
       final token = await _getToken();
@@ -275,11 +395,6 @@ class StudentStatsViewModel extends ChangeNotifier {
 
       final url = Uri.parse("$_baseUrl/attendance/export/class/$classId");
 
-      debugPrint("\nĐANG GỌI LINK TẢI EXCEL: $url");
-
-      // Lưu ý: launchUrl chỉ mở link trên trình duyệt.
-      // Nếu backend bắt buộc Authorization Bearer token thì trình duyệt sẽ không gửi token.
-      // Khi đó cần viết API export cho phép download bằng query token hoặc tải file bằng http.get rồi lưu file.
       if (await canLaunchUrl(url)) {
         await launchUrl(
           url,

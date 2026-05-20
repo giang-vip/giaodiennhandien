@@ -32,19 +32,118 @@ class AppClassModel {
     this.attendanceEndTime,
   });
 
+  static String _text(dynamic value) {
+    return value?.toString().trim() ?? '';
+  }
+
+  static double? _double(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
+
+  static String? _extractRoomId(Map<String, dynamic> json) {
+    final direct = json['roomId'] ??
+        json['locationId'] ??
+        json['location_id'] ??
+        json['room_id'];
+
+    if (direct != null && direct.toString().trim().isNotEmpty) {
+      return direct.toString();
+    }
+
+    final locationIds = json['locationIds'];
+    if (locationIds is List && locationIds.isNotEmpty) {
+      return locationIds.first.toString();
+    }
+
+    final locations = json['locations'];
+    if (locations is List && locations.isNotEmpty) {
+      final first = locations.first;
+
+      if (first is Map && first['id'] != null) {
+        return first['id'].toString();
+      }
+
+      if (first is Map && first['locationId'] != null) {
+        return first['locationId'].toString();
+      }
+
+      return first.toString();
+    }
+
+    final location = json['location'] ?? json['room'];
+    if (location is Map) {
+      final id = location['id'] ?? location['locationId'];
+      if (id != null) return id.toString();
+    }
+
+    return null;
+  }
+
+  static double? _extractRadius(Map<String, dynamic> json) {
+    return _double(
+      json['radius'] ??
+          json['radiusMeters'] ??
+          json['defaultRadius'] ??
+          json['allowedRadius'] ??
+          json['location']?['radius'] ??
+          json['location']?['radiusMeters'] ??
+          json['room']?['radius'] ??
+          json['room']?['radiusMeters'],
+    );
+  }
+
   factory AppClassModel.fromJson(Map<String, dynamic> json) {
     return AppClassModel(
-      id: json['id']?.toString() ?? '',
-      teacherId: json['teacherId']?.toString() ?? '',
-      teacherName: json['teacherName'] ?? 'Không rõ giảng viên',
-      className: json['className'] ?? 'Lớp học không tên',
-      description: json['description'] ?? '',
-      startTime: json['startTime'] ?? '',
-      endTime: json['endTime'] ?? '',
-      isAttendanceOpen: json['isAttendanceOpen'] ?? false,
-      attendanceDuration: json['attendanceDuration'] ?? 0,
-      roomId: json['roomId']?.toString(),
-      radius: json['radius'] != null ? (json['radius'] as num).toDouble() : null,
+      id: _text(
+        json['id'] ??
+            json['classId'] ??
+            json['classroomId'] ??
+            json['classRoomId'],
+      ),
+      teacherId: _text(
+        json['teacherId'] ??
+            json['teacher']?['id'] ??
+            json['teacher']?['userId'],
+      ),
+      teacherName: _text(
+        json['teacherName'] ??
+            json['teacher']?['fullName'] ??
+            json['teacher']?['name'],
+      ).isNotEmpty
+          ? _text(
+        json['teacherName'] ??
+            json['teacher']?['fullName'] ??
+            json['teacher']?['name'],
+      )
+          : 'Không rõ giảng viên',
+      className: _text(
+        json['className'] ??
+            json['title'] ??
+            json['name'],
+      ).isNotEmpty
+          ? _text(
+        json['className'] ??
+            json['title'] ??
+            json['name'],
+      )
+          : 'Lớp học không tên',
+      description: _text(json['description']),
+      startTime: _text(
+        json['startTime'] ??
+            json['startDate'],
+      ),
+      endTime: _text(
+        json['endTime'] ??
+            json['endDate'],
+      ),
+      isAttendanceOpen: json['isAttendanceOpen'] == true,
+      attendanceDuration: json['attendanceDuration'] is int
+          ? json['attendanceDuration']
+          : int.tryParse(json['attendanceDuration']?.toString() ?? '') ?? 0,
+      roomId: _extractRoomId(json),
+      radius: _extractRadius(json),
       attendanceStartTime: json['attendanceStartTime']?.toString(),
       attendanceEndTime: json['attendanceEndTime']?.toString(),
     );
@@ -53,16 +152,22 @@ class AppClassModel {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'classId': id,
       'teacherId': teacherId,
       'teacherName': teacherName,
       'className': className,
+      'title': className,
       'description': description,
       'startTime': startTime,
+      'startDate': startTime,
       'endTime': endTime,
+      'endDate': endTime,
       'isAttendanceOpen': isAttendanceOpen,
       'attendanceDuration': attendanceDuration,
       'roomId': roomId,
+      'locationId': roomId,
       'radius': radius,
+      'radiusMeters': radius,
       'attendanceStartTime': attendanceStartTime,
       'attendanceEndTime': attendanceEndTime,
     };
@@ -108,19 +213,22 @@ class AppClassModel {
     if (attendanceStartTime == null || attendanceStartTime!.trim().isEmpty) {
       return null;
     }
-    return DateTime.tryParse(attendanceStartTime!);
+
+    return DateTime.tryParse(attendanceStartTime!)?.toLocal();
   }
 
   DateTime? get attendanceEndDateTime {
     if (attendanceEndTime == null || attendanceEndTime!.trim().isEmpty) {
       return null;
     }
-    return DateTime.tryParse(attendanceEndTime!);
+
+    return DateTime.tryParse(attendanceEndTime!)?.toLocal();
   }
 
   bool get isAttendanceExpired {
     final end = attendanceEndDateTime;
     if (end == null) return false;
+
     return DateTime.now().isAfter(end);
   }
 
@@ -130,6 +238,7 @@ class AppClassModel {
 
     final diff = end.difference(DateTime.now());
     if (diff.isNegative) return Duration.zero;
+
     return diff;
   }
 }

@@ -15,48 +15,39 @@ class AttendanceScreen extends StatefulWidget {
 }
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
+  int _latestLocationId = 0;
+
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final vm = context.read<AttendanceViewModel>();
       vm.clearData();
 
-      final locationId = _resolveLocationId();
-      if (locationId == 0) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Buổi học này chưa được cấu hình vị trí điểm danh!'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      try {
-        await vm.prepareLocationCheck(locationId);
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(e.toString().replaceAll("Exception: ", "")),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      await _prepareLatestLocation();
     });
   }
 
-  int _resolveLocationId() {
+  int _resolveSessionId() {
+    return int.tryParse(widget.classData?['sessionId']?.toString() ?? '0') ?? 0;
+  }
+
+  String _resolveClassId() {
+    return (widget.classData?['classId'] ??
+        widget.classData?['id'] ??
+        widget.classData?['classroomId'] ??
+        '')
+        .toString();
+  }
+
+  int _resolveFallbackLocationId() {
     int locationId =
         int.tryParse(widget.classData?['locationId']?.toString() ?? '0') ?? 0;
 
     if (locationId == 0 && widget.classData?['locationIds'] != null) {
-      final listLocs = widget.classData?['locationIds'] as List;
-      if (listLocs.isNotEmpty) {
+      final listLocs = widget.classData?['locationIds'];
+      if (listLocs is List && listLocs.isNotEmpty) {
         locationId = int.tryParse(listLocs.first.toString()) ?? 0;
       }
     }
@@ -64,10 +55,42 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return locationId;
   }
 
+  Future<void> _prepareLatestLocation() async {
+    final vm = context.read<AttendanceViewModel>();
+
+    try {
+      final latestLocationId = await vm.prepareLocationCheck(
+        sessionId: _resolveSessionId(),
+        classId: _resolveClassId(),
+        fallbackLocationId: _resolveFallbackLocationId(),
+      );
+
+      _latestLocationId = latestLocationId;
+
+      if (_latestLocationId == 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Buổi học này chưa được cấu hình vị trí điểm danh!'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll("Exception: ", "")),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final viewModel = context.watch<AttendanceViewModel>();
-    final className = widget.classData?['name'] ?? 'Lớp học';
+    final className = widget.classData?['name'] ?? widget.classData?['className'] ?? 'Lớp học';
     final bool canProceed = viewModel.isWithinAllowedArea == true;
 
     return Scaffold(
@@ -143,7 +166,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Khoảng cách tới vị trí lớp: ${viewModel.distanceToClass!.toStringAsFixed(1)} m'
+                          'Khoảng cách tới phòng admin đang đặt: ${viewModel.distanceToClass!.toStringAsFixed(1)} m'
                               '${viewModel.allowedRadius != null ? ' / Bán kính cho phép: ${viewModel.allowedRadius!.toStringAsFixed(1)} m' : ''}',
                           style: const TextStyle(
                             fontSize: 13,
@@ -157,40 +180,22 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       onPressed: viewModel.isLoading || viewModel.isCheckingLocation
                           ? null
                           : () async {
-                        try {
-                          await context
-                              .read<AttendanceViewModel>()
-                              .prepareLocationCheck(_resolveLocationId());
+                        await _prepareLatestLocation();
 
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  viewModel.isWithinAllowedArea == true
-                                      ? 'Bạn đang ở đúng vị trí điểm danh.'
-                                      : 'Bạn chưa ở đúng vị trí admin đã đặt.',
-                                ),
-                                backgroundColor:
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
                                 viewModel.isWithinAllowedArea == true
-                                    ? Colors.green
-                                    : Colors.orange,
+                                    ? 'Bạn đang ở đúng vị trí phòng admin đang đặt.'
+                                    : 'Bạn chưa ở đúng vị trí phòng admin đang đặt.',
                               ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  e.toString().replaceAll(
-                                    "Exception: ",
-                                    "",
-                                  ),
-                                ),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
+                              backgroundColor:
+                              viewModel.isWithinAllowedArea == true
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
+                          );
                         }
                       },
                       icon: const Icon(Icons.my_location),
@@ -205,13 +210,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               ),
             ),
             const SizedBox(height: 32),
-
             const Text(
               "2. XÁC THỰC KHUÔN MẶT",
               style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
             ),
             const SizedBox(height: 16),
-
             Container(
               width: 220,
               height: 220,
@@ -250,7 +253,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               ),
             ),
             const SizedBox(height: 48),
-
             ElevatedButton(
               onPressed: (!canProceed ||
                   viewModel.currentPosition == null ||
@@ -260,20 +262,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ? null
                   : () async {
                 try {
-                  final int realSessionId = int.tryParse(
-                    widget.classData?['sessionId']?.toString() ?? '0',
-                  ) ??
-                      0;
+                  final int realSessionId = _resolveSessionId();
 
-                  int locationId = _resolveLocationId();
+                  if (realSessionId == 0) {
+                    throw Exception("Không xác định được phiên điểm danh!");
+                  }
 
-                  if (locationId == 0) {
-                    throw Exception("Buổi học này chưa được cấu hình phòng học!");
+                  final latestLocationId = await context
+                      .read<AttendanceViewModel>()
+                      .prepareLocationCheck(
+                    sessionId: realSessionId,
+                    classId: _resolveClassId(),
+                    fallbackLocationId: _latestLocationId == 0
+                        ? _resolveFallbackLocationId()
+                        : _latestLocationId,
+                  );
+
+                  _latestLocationId = latestLocationId;
+
+                  if (context.read<AttendanceViewModel>().isWithinAllowedArea != true) {
+                    throw Exception("Sai vị trí phòng admin đang đặt!");
                   }
 
                   final prefs = await SharedPreferences.getInstance();
-                  final String token =
-                      prefs.getString('access_token') ?? '';
+                  final String token = prefs.getString('access_token') ?? '';
                   String currentStudentId = "UNKNOWN";
 
                   if (token.isNotEmpty) {
@@ -284,7 +296,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       );
                       final Map<String, dynamic> decodedMap =
                       jsonDecode(decodedStr);
-                      currentStudentId = decodedMap['sub'].toString();
+                      currentStudentId =
+                          (decodedMap['studentId'] ??
+                              decodedMap['userId'] ??
+                              decodedMap['id'] ??
+                              decodedMap['sub'])
+                              .toString();
                     } catch (_) {}
                   }
 
@@ -297,7 +314,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
                   final success = await context
                       .read<AttendanceViewModel>()
-                      .checkIn(realSessionId, locationId, currentStudentId);
+                      .checkIn(
+                    sessionId: realSessionId,
+                    classId: _resolveClassId(),
+                    fallbackLocationId: _latestLocationId,
+                    studentId: currentStudentId,
+                  );
 
                   if (success && context.mounted) {
                     _showSuccessDialog(context);

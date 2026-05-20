@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../data/models/RoomModel.dart';
@@ -31,6 +32,12 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
   LatLng _currentMapPosition = const LatLng(21.028511, 105.804817);
   double _currentRadius = 50.0;
 
+  String get _classKey => widget.classModel.id;
+
+  String get _savedRoomKey => 'class_${_classKey}_room';
+  String get _savedLocationKey => 'class_${_classKey}_location';
+  String get _savedRadiusKey => 'class_${_classKey}_radius';
+
   @override
   void initState() {
     super.initState();
@@ -56,9 +63,46 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
     super.dispose();
   }
 
+  Future<void> _loadSavedConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final savedRoomId = prefs.getString(_savedRoomKey) ??
+        prefs.getString(_savedLocationKey) ??
+        prefs.getString('saved_room_id_$_classKey') ??
+        prefs.getString('location_$_classKey');
+
+    final savedRadius = prefs.getDouble(_savedRadiusKey) ??
+        prefs.getDouble('saved_radius_$_classKey');
+
+    if (savedRoomId != null && savedRoomId.trim().isNotEmpty) {
+      _selectedRoomId = savedRoomId.trim();
+    }
+
+    if (savedRadius != null && savedRadius > 0) {
+      _currentRadius = savedRadius;
+      _radiusController.text = savedRadius.toStringAsFixed(0);
+    }
+  }
+
+  Future<void> _saveLocalConfig({
+    required String roomId,
+    required double radius,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(_savedRoomKey, roomId);
+    await prefs.setString(_savedLocationKey, roomId);
+    await prefs.setString('location_$_classKey', roomId);
+    await prefs.setString('saved_room_id_$_classKey', roomId);
+
+    await prefs.setDouble(_savedRadiusKey, radius);
+    await prefs.setDouble('saved_radius_$_classKey', radius);
+  }
+
   Future<void> _loadInitialData() async {
     final locVM = context.read<SetLocationViewModel>();
 
+    await _loadSavedConfig();
     await locVM.loadInitialData();
 
     if (!mounted) return;
@@ -69,7 +113,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               (room) => room.id.toString() == _selectedRoomId.toString(),
         );
 
-        _moveCameraToRoom(savedRoom, keepCustomRadius: true);
+        await _moveCameraToRoom(savedRoom, keepCustomRadius: true);
         return;
       } catch (e) {
         debugPrint('LOAD SAVED ROOM ERROR: $e');
@@ -212,12 +256,17 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
     }
 
     try {
-      await context.read<ClassManagementViewModel>().updateClass(
-        widget.classModel.copyWith(
-          roomId: _selectedRoomId,
-          radius: radius,
-        ),
+      final updatedClass = widget.classModel.copyWith(
+        roomId: _selectedRoomId,
+        radius: radius,
       );
+
+      await _saveLocalConfig(
+        roomId: _selectedRoomId!,
+        radius: radius,
+      );
+
+      await context.read<ClassManagementViewModel>().updateClass(updatedClass);
 
       if (!mounted) return;
 
@@ -227,7 +276,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
         Icons.check_circle,
       );
 
-      Navigator.pop(context, true);
+      Navigator.pop(context, updatedClass);
     } catch (e) {
       if (!mounted) return;
 
@@ -339,8 +388,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
                         position: _currentMapPosition,
                         infoWindow: InfoWindow(
                           title: _selectedRoomName ?? 'Vị trí phòng học',
-                          snippet:
-                          'Bán kính hợp lệ: ${_currentRadius.toInt()}m',
+                          snippet: 'Bán kính hợp lệ: ${_currentRadius.toInt()}m',
                         ),
                       ),
                     },
@@ -430,8 +478,7 @@ class _SetLocationScreenState extends State<SetLocationScreen> {
               onChanged: (value) {
                 setState(() {
                   final parsed = double.tryParse(value);
-                  _currentRadius =
-                  parsed != null && parsed > 0 ? parsed : 50.0;
+                  _currentRadius = parsed != null && parsed > 0 ? parsed : 50.0;
                 });
               },
               decoration: InputDecoration(

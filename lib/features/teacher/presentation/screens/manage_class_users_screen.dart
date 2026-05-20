@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/constants/app_colors.dart';
 
@@ -29,6 +30,22 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
   Map<String, dynamic>? _selectedClass;
   String? _errorMessage;
 
+  final List<String> _pendingStatuses = [
+    'PENDING',
+    'OPENING',
+    'WAITING',
+    'REQUESTED',
+  ];
+
+  final List<String> _acceptedStatuses = [
+    'ACCEPTED',
+    'APPROVED',
+    'APPROVE',
+    'APPROVED_BY_ADMIN',
+    'ACTIVE',
+    'JOINED',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -53,14 +70,27 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
     }
   }
 
+  String _text(dynamic value) => value?.toString().trim() ?? '';
+
   List<dynamic> _safeList(dynamic data) {
     if (data is List) return data;
 
     if (data is Map) {
       if (data['content'] is List) return data['content'];
       if (data['data'] is List) return data['data'];
+      if (data['result'] is List) return data['result'];
+      if (data['items'] is List) return data['items'];
+
       if (data['data'] is Map && data['data']['content'] is List) {
         return data['data']['content'];
+      }
+
+      if (data['result'] is Map && data['result']['content'] is List) {
+        return data['result']['content'];
+      }
+
+      if (data['data'] is Map && data['data']['items'] is List) {
+        return data['data']['items'];
       }
     }
 
@@ -69,7 +99,133 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
 
   Future<String> _readToken() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('access_token') ?? '';
+    return prefs.getString('access_token') ??
+        prefs.getString('token') ??
+        prefs.getString('jwt') ??
+        prefs.getString('accessToken') ??
+        '';
+  }
+
+  String _getClassId(Map<String, dynamic> map) {
+    return _text(
+      map['id'] ??
+          map['classId'] ??
+          map['classroomId'] ??
+          map['classRoomId'],
+    );
+  }
+
+  String _getTeacherId(Map<String, dynamic> map) {
+    return _text(
+      map['teacherId'] ??
+          map['teacher']?['id'] ??
+          map['teacher']?['userId'] ??
+          map['user']?['id'] ??
+          map['createdBy'],
+    );
+  }
+
+  String _getRegistrationId(Map<String, dynamic> map) {
+    return _text(
+      map['registrationId'] ??
+          map['id'] ??
+          map['classRegistrationId'] ??
+          map['registerId'],
+    );
+  }
+
+  String _getRegistrationClassId(Map<String, dynamic> map) {
+    final nested = map['classroom'] ??
+        map['classRoom'] ??
+        map['class'] ??
+        map['classes'] ??
+        map['appClass'] ??
+        map['clazz'];
+
+    if (nested is Map) {
+      final id = _text(
+        nested['id'] ??
+            nested['classId'] ??
+            nested['classroomId'] ??
+            nested['classRoomId'],
+      );
+
+      if (id.isNotEmpty && id != '0') return id;
+    }
+
+    return _text(
+      map['classId'] ??
+          map['classroomId'] ??
+          map['classRoomId'] ??
+          map['class_id'] ??
+          map['idClass'],
+    );
+  }
+
+  String _getStudentId(Map<String, dynamic> map) {
+    final nested = map['student'] ?? map['user'] ?? map['account'];
+
+    if (nested is Map) {
+      final id = _text(
+        nested['id'] ??
+            nested['studentId'] ??
+            nested['userId'],
+      );
+
+      if (id.isNotEmpty && id != '0') return id;
+    }
+
+    return _text(
+      map['studentId'] ??
+          map['userId'] ??
+          map['accountId'] ??
+          map['student_id'],
+    );
+  }
+
+  String _getStudentName(Map<String, dynamic> map) {
+    final nested = map['student'] ?? map['user'] ?? map['account'];
+
+    if (nested is Map) {
+      final name = _text(
+        nested['fullName'] ??
+            nested['name'] ??
+            nested['username'] ??
+            nested['email'],
+      );
+
+      if (name.isNotEmpty) return name;
+    }
+
+    final name = _text(
+      map['studentName'] ??
+          map['fullName'] ??
+          map['name'] ??
+          map['username'] ??
+          map['email'],
+    );
+
+    return name.isNotEmpty ? name : 'Chưa có tên';
+  }
+
+  String _getStatus(Map<String, dynamic> map) {
+    final status = _text(
+      map['status'] ??
+          map['registrationStatus'] ??
+          map['approveStatus'] ??
+          map['state'] ??
+          map['approvalStatus'],
+    ).toUpperCase();
+
+    return status.isEmpty ? 'PENDING' : status;
+  }
+
+  bool _isPendingStatus(String status) {
+    return _pendingStatuses.contains(status.toUpperCase());
+  }
+
+  bool _isAcceptedStatus(String status) {
+    return _acceptedStatuses.contains(status.toUpperCase());
   }
 
   void _showMessage(
@@ -77,30 +233,36 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
         Color color = Colors.black87,
         IconData? icon,
       }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        content: Row(
-          children: [
-            if (icon != null) ...[
-              Icon(icon, color: Colors.white),
-              const SizedBox(width: 10),
-            ],
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: color,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          content: Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, color: Colors.white),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
   }
 
   Future<void> _fetchMyClasses() async {
@@ -111,33 +273,62 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
 
     try {
       final token = await _readToken();
+
       if (token.isEmpty) {
         throw Exception('Không tìm thấy access token');
       }
 
       final jwt = _decodeJwt(token);
-      final teacherId = jwt['sub']?.toString() ?? '';
+      final teacherId = _text(
+        jwt['sub'] ?? jwt['userId'] ?? jwt['id'],
+      );
 
       final response = await http.get(
-        Uri.parse('$_baseUrl/classrooms?page=0&size=100'),
-        headers: {'Authorization': 'Bearer $token'},
+        Uri.parse('$_baseUrl/classrooms?page=0&size=500'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
       );
+
+      debugPrint('ADMIN CLASSES STATUS -> ${response.statusCode}');
+      debugPrint('ADMIN CLASSES BODY -> ${utf8.decode(response.bodyBytes)}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         final List<dynamic> content = _safeList(data);
 
         final myClasses = content.where((item) {
-          return item is Map && item['teacherId']?.toString() == teacherId;
+          if (item is! Map) return false;
+
+          final map = Map<String, dynamic>.from(item);
+          final itemTeacherId = _getTeacherId(map);
+
+          if (teacherId.isEmpty) return true;
+          if (itemTeacherId.isEmpty) return true;
+
+          return itemTeacherId == teacherId;
         }).map((item) {
           final map = Map<String, dynamic>.from(item as Map);
+          final id = _getClassId(map);
+
           return {
-            'id': (map['id'] ?? map['classId']).toString(),
-            'title': map['title'] ?? 'Chưa có tên lớp',
-            'description': map['description'] ?? '',
-            'startDate': map['startDate']?.toString() ?? 'N/A',
-            'endDate': map['endDate']?.toString() ?? 'N/A',
+            'id': id,
+            'title': _text(
+              map['title'] ?? map['className'] ?? map['name'],
+            ).isNotEmpty
+                ? _text(map['title'] ?? map['className'] ?? map['name'])
+                : 'Lớp học #$id',
+            'description': _text(map['description']),
+            'startDate': _text(map['startDate'] ?? map['startTime']).isNotEmpty
+                ? _text(map['startDate'] ?? map['startTime'])
+                : 'N/A',
+            'endDate': _text(map['endDate'] ?? map['endTime']).isNotEmpty
+                ? _text(map['endDate'] ?? map['endTime'])
+                : 'N/A',
           };
+        }).where((e) {
+          return _text(e['id']).isNotEmpty && _text(e['id']) != '0';
         }).toList();
 
         setState(() {
@@ -146,62 +337,134 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
       } else if (response.statusCode == 401) {
         throw Exception('Phiên đăng nhập hết hạn, vui lòng đăng nhập lại');
       } else {
-        throw Exception(
-          'Không tải được danh sách lớp (${response.statusCode})',
-        );
+        throw Exception('Không tải được danh sách lớp (${response.statusCode})');
       }
     } catch (e) {
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
       });
     } finally {
-      setState(() {
-        _isLoadingClasses = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingClasses = false;
+        });
+      }
     }
   }
 
-  Future<List<Map<String, dynamic>>> _fetchRegistrationsByStatus({
+  Map<String, dynamic> _mapRegistrationItem(
+      Map<String, dynamic> map,
+      String fallbackStatus,
+      ) {
+    final status = _getStatus(map);
+    final registrationId = _getRegistrationId(map);
+    final classId = _getRegistrationClassId(map);
+    final studentId = _getStudentId(map);
+
+    return {
+      'registrationId': registrationId,
+      'classId': classId,
+      'classTitle': _text(
+        map['classTitle'] ??
+            map['className'] ??
+            map['classroom']?['title'] ??
+            map['classroom']?['className'] ??
+            map['class']?['title'] ??
+            map['class']?['className'],
+      ),
+      'studentId': studentId,
+      'studentName': _getStudentName(map),
+      'registeredAt': _text(
+        map['registeredAt'] ??
+            map['createdAt'] ??
+            map['createdDate'],
+      ),
+      'status': status.isNotEmpty ? status : fallbackStatus,
+      'pending': map['pending'] == true || _isPendingStatus(status),
+      'raw': map,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchRegistrationsFromStatusApi({
     required String classId,
     required String status,
   }) async {
     final token = await _readToken();
-    if (token.isEmpty) {
-      throw Exception('Không tìm thấy access token');
-    }
+
+    final url =
+        '$_baseUrl/class-registrations/$classId/students/status?page=0&size=100&status=$status';
 
     final response = await http.get(
-      Uri.parse(
-        '$_baseUrl/class-registrations/$classId/students/status?page=0&size=100&status=$status',
-      ),
-      headers: {'Authorization': 'Bearer $token'},
+      Uri.parse(url),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+      },
     );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(utf8.decode(response.bodyBytes));
-      final List<dynamic> content = _safeList(data);
+    debugPrint('REG STATUS API URL -> $url');
+    debugPrint('REG STATUS API STATUS -> ${response.statusCode}');
+    debugPrint('REG STATUS API BODY -> ${utf8.decode(response.bodyBytes)}');
 
-      return content.map((item) {
-        final map = Map<String, dynamic>.from(item as Map);
+    if (response.statusCode != 200) return [];
 
-        return {
-          'registrationId': (map['registrationId'] ?? '').toString(),
-          'classId': (map['classId'] ?? '').toString(),
-          'classTitle': map['classTitle']?.toString() ?? '',
-          'studentId': (map['studentId'] ?? '').toString(),
-          'studentName': map['studentName']?.toString() ?? 'Chưa có tên',
-          'registeredAt': map['registeredAt']?.toString() ?? '',
-          'status': map['status']?.toString() ?? status,
-          'pending': map['pending'] == true,
-        };
-      }).toList();
-    } else if (response.statusCode == 401 || response.statusCode == 403) {
-      throw Exception('Không có quyền truy cập danh sách đăng ký của lớp này');
-    } else {
-      throw Exception(
-        'Không lấy được danh sách $status (${response.statusCode})',
-      );
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    final List<dynamic> content = _safeList(data);
+
+    return content.whereType<Map>().map((item) {
+      final map = Map<String, dynamic>.from(item);
+      return _mapRegistrationItem(map, status);
+    }).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchAllRegistrationsAndFilter({
+    required String classId,
+  }) async {
+    final token = await _readToken();
+
+    final urls = [
+      '$_baseUrl/class-registrations?page=0&size=500',
+      '$_baseUrl/class-registrations/$classId/students?page=0&size=500',
+      '$_baseUrl/class-registrations/class/$classId?page=0&size=500',
+    ];
+
+    final result = <Map<String, dynamic>>[];
+
+    for (final url in urls) {
+      try {
+        final response = await http.get(
+          Uri.parse(url),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+          },
+        );
+
+        debugPrint('REG ALL API URL -> $url');
+        debugPrint('REG ALL API STATUS -> ${response.statusCode}');
+        debugPrint('REG ALL API BODY -> ${utf8.decode(response.bodyBytes)}');
+
+        if (response.statusCode != 200) continue;
+
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        final List<dynamic> content = _safeList(data);
+
+        for (final raw in content) {
+          if (raw is! Map) continue;
+
+          final map = Map<String, dynamic>.from(raw);
+          final regClassId = _getRegistrationClassId(map);
+
+          if (regClassId != classId) continue;
+
+          result.add(_mapRegistrationItem(map, _getStatus(map)));
+        }
+      } catch (e) {
+        debugPrint('FETCH ALL REG ERROR -> $url -> $e');
+      }
     }
+
+    return result;
   }
 
   Future<void> _loadClassRegistrations(Map<String, dynamic> classItem) async {
@@ -216,15 +479,54 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
     try {
       final classId = classItem['id'].toString();
 
-      final pending = await _fetchRegistrationsByStatus(
+      final allItems = <Map<String, dynamic>>[];
+
+      for (final status in _pendingStatuses) {
+        final items = await _fetchRegistrationsFromStatusApi(
+          classId: classId,
+          status: status,
+        );
+        allItems.addAll(items);
+      }
+
+      for (final status in _acceptedStatuses) {
+        final items = await _fetchRegistrationsFromStatusApi(
+          classId: classId,
+          status: status,
+        );
+        allItems.addAll(items);
+      }
+
+      final fallbackItems = await _fetchAllRegistrationsAndFilter(
         classId: classId,
-        status: 'PENDING',
       );
 
-      final accepted = await _fetchRegistrationsByStatus(
-        classId: classId,
-        status: 'ACCEPTED',
-      );
+      allItems.addAll(fallbackItems);
+
+      final unique = <String, Map<String, dynamic>>{};
+
+      for (final item in allItems) {
+        final id = _text(item['registrationId']);
+        final sid = _text(item['studentId']);
+        final key = id.isNotEmpty ? id : '${item['classId']}_$sid';
+
+        if (key.trim().isEmpty) continue;
+
+        unique[key] = item;
+      }
+
+      final pending = <Map<String, dynamic>>[];
+      final accepted = <Map<String, dynamic>>[];
+
+      for (final item in unique.values) {
+        final status = _getStatus(item);
+
+        if (_isPendingStatus(status)) {
+          pending.add(item);
+        } else if (_isAcceptedStatus(status)) {
+          accepted.add(item);
+        }
+      }
 
       setState(() {
         _pendingStudents = pending;
@@ -235,9 +537,11 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
         _errorMessage = e.toString().replaceAll('Exception: ', '');
       });
     } finally {
-      setState(() {
-        _isLoadingRegistrations = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingRegistrations = false;
+        });
+      }
     }
   }
 
@@ -245,24 +549,60 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
     required String registrationId,
     required String status,
   }) async {
+    if (registrationId.isEmpty) {
+      _showMessage(
+        'Không xác định được mã đăng ký',
+        color: Colors.red,
+        icon: Icons.error_outline,
+      );
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
     });
 
     try {
       final token = await _readToken();
+
       if (token.isEmpty) {
         throw Exception('Không tìm thấy access token');
       }
 
-      final response = await http.put(
-        Uri.parse(
-          '$_baseUrl/class-registrations/$registrationId?status=$status',
-        ),
-        headers: {'Authorization': 'Bearer $token'},
-      );
+      final urls = [
+        '$_baseUrl/class-registrations/$registrationId?status=$status',
+        '$_baseUrl/class-registrations/$registrationId/status?status=$status',
+      ];
 
-      if (response.statusCode == 200) {
+      http.Response? response;
+
+      for (final url in urls) {
+        final res = await http.put(
+          Uri.parse(url),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+          },
+        );
+
+        debugPrint('UPDATE REG URL -> $url');
+        debugPrint('UPDATE REG STATUS -> ${res.statusCode}');
+        debugPrint('UPDATE REG BODY -> ${utf8.decode(res.bodyBytes)}');
+
+        if (res.statusCode == 200 ||
+            res.statusCode == 201 ||
+            res.statusCode == 204) {
+          response = res;
+          break;
+        }
+
+        response = res;
+      }
+
+      if (response != null &&
+          (response.statusCode == 200 ||
+              response.statusCode == 201 ||
+              response.statusCode == 204)) {
         _showMessage(
           status == 'ACCEPTED'
               ? 'Đã chấp nhận đăng ký'
@@ -275,14 +615,7 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
           await _loadClassRegistrations(_selectedClass!);
         }
       } else {
-        String message = 'Cập nhật trạng thái thất bại';
-        try {
-          final body = jsonDecode(response.body);
-          if (body is Map && body['message'] != null) {
-            message = body['message'].toString();
-          }
-        } catch (_) {}
-        throw Exception('$message (${response.statusCode})');
+        throw Exception('Cập nhật trạng thái thất bại');
       }
     } catch (e) {
       _showMessage(
@@ -300,19 +633,32 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
   }
 
   Future<void> _deleteRegistration(String registrationId) async {
+    if (registrationId.isEmpty) {
+      _showMessage(
+        'Không xác định được mã đăng ký',
+        color: Colors.red,
+        icon: Icons.error_outline,
+      );
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
     });
 
     try {
       final token = await _readToken();
+
       if (token.isEmpty) {
         throw Exception('Không tìm thấy access token');
       }
 
       final response = await http.delete(
         Uri.parse('$_baseUrl/class-registrations/$registrationId'),
-        headers: {'Authorization': 'Bearer $token'},
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
       );
 
       if (response.statusCode == 200 ||
@@ -328,14 +674,7 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
           await _loadClassRegistrations(_selectedClass!);
         }
       } else {
-        String message = 'Xóa đăng ký thất bại';
-        try {
-          final body = jsonDecode(response.body);
-          if (body is Map && body['message'] != null) {
-            message = body['message'].toString();
-          }
-        } catch (_) {}
-        throw Exception('$message (${response.statusCode})');
+        throw Exception('Xóa đăng ký thất bại (${response.statusCode})');
       }
     } catch (e) {
       _showMessage(
@@ -452,7 +791,8 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
           : _myClasses.isEmpty
           ? Center(
         child: Text(
-          'Bạn chưa có lớp nào để quản lý.',
+          _errorMessage ?? 'Bạn chưa có lớp nào để quản lý.',
+          textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.grey.shade700,
             fontWeight: FontWeight.w600,
@@ -523,7 +863,8 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
                       child: Row(
                         children: [
                           CircleAvatar(
-                            backgroundColor: AppColors.primary.withOpacity(0.12),
+                            backgroundColor:
+                            AppColors.primary.withOpacity(0.12),
                             child: const Icon(
                               Icons.menu_book_rounded,
                               color: AppColors.primary,
@@ -612,7 +953,8 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
     if (_pendingStudents.isEmpty) {
       return _buildEmptyState(
         icon: Icons.hourglass_empty_rounded,
-        text: 'Không có sinh viên nào đang chờ duyệt.',
+        text:
+        'Không có sinh viên nào đang chờ duyệt.\nNếu DB đang có status OPENING thì bấm làm mới hoặc chọn lại lớp.',
       );
     }
 
@@ -622,6 +964,7 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final item = _pendingStudents[index];
+
         return _buildStudentCard(
           item: item,
           statusColor: Colors.orange,
@@ -640,9 +983,8 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
               ),
             ),
             OutlinedButton.icon(
-              onPressed: _isProcessing
-                  ? null
-                  : () => _confirmDeleteRegistration(item),
+              onPressed:
+              _isProcessing ? null : () => _confirmDeleteRegistration(item),
               icon: const Icon(Icons.delete_outline, size: 18),
               label: const Text('Xóa'),
               style: OutlinedButton.styleFrom(
@@ -674,6 +1016,7 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final item = _acceptedStudents[index];
+
         return _buildStudentCard(
           item: item,
           statusColor: Colors.green,
@@ -720,7 +1063,6 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -740,7 +1082,6 @@ class _ManageClassUsersScreenState extends State<ManageClassUsersScreen>
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       item['studentName'] ?? 'Chưa có tên',

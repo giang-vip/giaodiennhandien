@@ -308,7 +308,7 @@ class _CreateClassScreenState extends State<CreateClassScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Chọn phòng học từ danh sách. Hệ thống sẽ gửi locationId tương ứng khi tạo lớp.',
+                        'Tạo lớp học mới',
                         style: TextStyle(
                           color: Colors.grey.shade700,
                           fontWeight: FontWeight.w600,
