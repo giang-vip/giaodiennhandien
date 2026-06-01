@@ -1,8 +1,8 @@
 class ApiConstants {
   // ================= CHỌN 1 CHẾ ĐỘ =================
-  static const bool useWindowsDesktop = false;
+  static const bool useWindowsDesktop = true;
   static const bool useAndroidEmulator = false;
-  static const bool usePhysicalDevice = true;
+  static const bool usePhysicalDevice = false;
 
   // IP Wi-Fi thật của máy tính (cho điện thoại thật truy cập)
 
