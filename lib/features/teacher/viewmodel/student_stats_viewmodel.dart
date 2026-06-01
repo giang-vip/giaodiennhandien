@@ -16,6 +16,110 @@ class StudentStatsViewModel extends ChangeNotifier {
   List<StudentStatModel> _statsList = [];
   List<StudentStatModel> get statsList => _statsList;
 
+  int _totalSessions = 0;
+  int get totalSessions => _totalSessions;
+
+  Future<void> fetchTotalSessions(String classId) async {
+    try {
+      final token = await _getValidToken();
+      if (token == null || token.isEmpty) {
+        throw Exception("Không tìm thấy token đăng nhập");
+      }
+
+      final headers = {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      };
+
+      final url = "$_baseUrl/sessions/class/$classId/count";
+      final res = await http.get(Uri.parse(url), headers: headers);
+
+      if (res.statusCode == 200) {
+        final bodyText = utf8.decode(res.bodyBytes);
+        // final data = jsonDecode(bodyText);
+        // final count = (data is int) ? data : (data['count'] ?? 0);
+        debugPrint("TOTAL SESSIONS BODY: $bodyText");
+        final data = jsonDecode(bodyText);
+        if (data is int) {
+          _totalSessions = data;
+        } else if (data is String) {
+          _totalSessions = int.tryParse(data) ?? 0;
+        } else if (data is Map<String, dynamic>) {
+          _totalSessions = data['count'] ?? 0;
+        }
+
+        // _totalSessions = count;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint("STATS TOTAL SESSIONS ERROR: $e");
+    }
+  }
+
+  Map<String, dynamic> _decodeJwt(String token) {
+    try {
+      String realToken = token.trim();
+      if (realToken.startsWith('Bearer ')) {
+        realToken = realToken.replaceFirst('Bearer ', '').trim();
+      }
+      final payload = realToken.split('.')[1];
+      return jsonDecode(
+        utf8.decode(
+          base64Url.decode(
+            base64Url.normalize(payload),
+          ),
+        ),
+      );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  bool _isTokenExpired(String token) {
+    final jwt = _decodeJwt(token);
+    final exp = jwt['exp'];
+    if (exp == null) return false;
+    final expInt = int.tryParse(exp.toString());
+    if (expInt == null) return false;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return now >= expInt;
+  }
+
+  bool _isJwtToken(String token) {
+    final cleanToken = token.replaceFirst('Bearer ', '').trim();
+    return cleanToken.split('.').length == 3;
+  }
+
+
+  Future<String?> _getValidToken() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final tokenKeys = [
+      'access_token',
+      'accessToken',
+      'token',
+      'jwt',
+      'jwt_token',
+      'auth_token',
+      'access',
+    ];
+
+    for (final key in tokenKeys) {
+      final value = prefs.getString(key);
+      if (value == null || value.trim().isEmpty) continue;
+
+      final token = value.trim();
+      if (!_isJwtToken(token)) continue;
+      if (_isTokenExpired(token)) continue;
+
+      return token.replaceFirst('Bearer ', '').trim();
+    }
+
+    return null;
+  }
+
+
   int get totalStudents => _statsList.length;
 
   String get avgAttendance {
@@ -23,7 +127,7 @@ class StudentStatsViewModel extends ChangeNotifier {
 
     final total = _statsList.fold<double>(
       0,
-          (sum, item) => sum + item.percent,
+          (sum, item) => sum + item.percentOfClass(),
     );
 
     return "${(total / _statsList.length).toStringAsFixed(0)}%";
@@ -214,9 +318,9 @@ class StudentStatsViewModel extends ChangeNotifier {
 
     final urls = [
       "$_baseUrl/class-registrations/$classId/students/status?page=0&size=500&status=ACCEPTED",
-      "$_baseUrl/class-registrations/$classId/students/status?page=0&size=500&status=APPROVED",
-      "$_baseUrl/class-registrations/class/$classId?page=0&size=500",
-      "$_baseUrl/class-registrations?page=0&size=500",
+      // "$_baseUrl/class-registrations/$classId/students/status?page=0&size=500&status=APPROVED",
+      // "$_baseUrl/class-registrations/class/$classId?page=0&size=500",
+      // "$_baseUrl/class-registrations?page=0&size=500",
     ];
 
     for (final url in urls) {
@@ -268,10 +372,10 @@ class StudentStatsViewModel extends ChangeNotifier {
     required Map<String, String> headers,
   }) async {
     final urls = [
-      "$_baseUrl/attendance/class/$classId",
-      "$_baseUrl/attendance/classes/$classId",
-      "$_baseUrl/attendance/records/class/$classId",
-      "$_baseUrl/attendance?classId=$classId&page=0&size=500",
+      // "$_baseUrl/attendance/class/$classId",
+      // "$_baseUrl/attendance/classes/$classId",
+      "$_baseUrl/attendance/class/$classId/student-stats",
+      // "$_baseUrl/attendance?classId=$classId&page=0&size=500",
     ];
 
     final result = <Map<String, dynamic>>[];
@@ -303,14 +407,96 @@ class StudentStatsViewModel extends ChangeNotifier {
     return result;
   }
 
+  // Future<void> fetchClassStats(String classId) async {
+  //   _isLoading = true;
+  //   _statsList = [];
+  //   notifyListeners();
+  //
+  //   try {
+  //     final token = await _getValidToken();
+  //     debugPrint("VALID TOKEN: $token");
+  //     if (token == null || token.isEmpty) {
+  //       debugPrint("STATS ERROR: Không tìm thấy token đăng nhập");
+  //       return;
+  //     }
+  //
+  //     final headers = {
+  //       "Authorization": "Bearer $token",
+  //       "Content-Type": "application/json",
+  //       "Accept": "application/json",
+  //     };
+  //
+  //     final acceptedStudents = await _fetchAcceptedStudents(
+  //       classId: classId,
+  //       headers: headers,
+  //     );
+  //
+  //     final attendanceRecords = await _fetchAttendanceRecords(
+  //       classId: classId,
+  //       headers: headers,
+  //     );
+  //
+  //     await fetchTotalSessions(classId);
+  //
+  //     final Map<String, StudentStatModel> mapStats = {};
+  //
+  //     for (final item in acceptedStudents) {
+  //       final studentId = _getStudentId(item);
+  //       final studentName = _getStudentName(item);
+  //
+  //       if (studentId == "0") continue;
+  //
+  //       mapStats.putIfAbsent(
+  //         studentId,
+  //             () => StudentStatModel(
+  //           studentId: studentId,
+  //           studentName: studentName,
+  //         ),
+  //       );
+  //     }
+  //
+  //     for (final item in attendanceRecords) {
+  //       final studentId = _getStudentId(item);
+  //       final studentName = _getStudentName(item);
+  //       final status = _getStatus(item);
+  //
+  //       if (studentId == "0") continue;
+  //
+  //       mapStats.putIfAbsent(
+  //         studentId,
+  //             () => StudentStatModel(
+  //           studentId: studentId,
+  //           studentName: studentName,
+  //         ),
+  //       );
+  //
+  //       if (_isPresent(status)) {
+  //         mapStats[studentId]!.present++;
+  //       } else {
+  //         mapStats[studentId]!.absent++;
+  //       }
+  //     }
+  //
+  //     _statsList = mapStats.values.toList()
+  //       ..sort((a, b) => a.studentName.compareTo(b.studentName));
+  //
+  //     debugPrint("THỐNG KÊ ĐƯỢC ${_statsList.length} SINH VIÊN");
+  //   } catch (e) {
+  //     debugPrint("STATS FLUTTER ERROR: $e");
+  //     _statsList = [];
+  //   } finally {
+  //     _isLoading = false;
+  //     notifyListeners();
+  //   }
+  // }
+
   Future<void> fetchClassStats(String classId) async {
     _isLoading = true;
     _statsList = [];
     notifyListeners();
 
     try {
-      final token = await _getToken();
-
+      final token = await _getValidToken();
       if (token == null || token.isEmpty) {
         debugPrint("STATS ERROR: Không tìm thấy token đăng nhập");
         return;
@@ -322,6 +508,7 @@ class StudentStatsViewModel extends ChangeNotifier {
         "Accept": "application/json",
       };
 
+      // Lấy danh sách sinh viên và điểm danh
       final acceptedStudents = await _fetchAcceptedStudents(
         classId: classId,
         headers: headers,
@@ -332,12 +519,13 @@ class StudentStatsViewModel extends ChangeNotifier {
         headers: headers,
       );
 
+      await fetchTotalSessions(classId);
+
       final Map<String, StudentStatModel> mapStats = {};
 
       for (final item in acceptedStudents) {
         final studentId = _getStudentId(item);
         final studentName = _getStudentName(item);
-
         if (studentId == "0") continue;
 
         mapStats.putIfAbsent(
@@ -345,22 +533,22 @@ class StudentStatsViewModel extends ChangeNotifier {
               () => StudentStatModel(
             studentId: studentId,
             studentName: studentName,
+            totalSessions: _totalSessions,
           ),
         );
       }
 
       for (final item in attendanceRecords) {
         final studentId = _getStudentId(item);
-        final studentName = _getStudentName(item);
         final status = _getStatus(item);
-
         if (studentId == "0") continue;
 
         mapStats.putIfAbsent(
           studentId,
               () => StudentStatModel(
             studentId: studentId,
-            studentName: studentName,
+            studentName: _getStudentName(item),
+            totalSessions: _totalSessions,
           ),
         );
 
@@ -371,8 +559,40 @@ class StudentStatsViewModel extends ChangeNotifier {
         }
       }
 
-      _statsList = mapStats.values.toList()
+      // _statsList = mapStats.values.toList()
+      //   ..sort((a, b) => a.studentName.compareTo(b.studentName));
+
+      _statsList = acceptedStudents.map((e) {
+        final studentId = _getStudentId(e);
+        final studentName = _getStudentName(e);
+
+        // tìm record attendance tương ứng
+        final record = attendanceRecords.firstWhere(
+              (r) => r['studentId'].toString() == studentId,
+          orElse: () => {},
+        );
+
+        return StudentStatModel(
+          studentId: studentId,
+          studentName: studentName,
+          present: record.isNotEmpty ? (record['present'] ?? 0) : 0,
+          absent: record.isNotEmpty ? (record['absent'] ?? 0) : 0,
+          totalSessions: _totalSessions,
+        );
+      }).toList()
         ..sort((a, b) => a.studentName.compareTo(b.studentName));
+
+      // _statsList = attendanceRecords.map((e) {
+      //   return StudentStatModel(
+      //     studentId: e['studentId'].toString(),
+      //     studentName: e['studentName'],
+      //     present: e['present'] ?? 0,
+      //     absent: e['absent'] ?? 0,
+      //     totalSessions: _totalSessions, // lấy từ fetchTotalSessions
+      //   );
+      // }).toList()
+      //   ..sort((a, b) => a.studentName.compareTo(b.studentName));
+
 
       debugPrint("THỐNG KÊ ĐƯỢC ${_statsList.length} SINH VIÊN");
     } catch (e) {
@@ -384,9 +604,11 @@ class StudentStatsViewModel extends ChangeNotifier {
     }
   }
 
+
+
   Future<void> downloadExcel(String classId) async {
     try {
-      final token = await _getToken();
+      final token = await _getValidToken();
 
       if (token == null || token.isEmpty) {
         debugPrint("EXCEL ERROR: Không tìm thấy token đăng nhập");

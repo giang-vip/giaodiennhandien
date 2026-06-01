@@ -109,8 +109,8 @@ class _StudentStatsScreenState extends State<StudentStatsScreen> {
               )
             else
               ...filtered.map((s) {
-                final total = s.present + s.absent;
-                final double percent = s.percent.clamp(0.0, 100.0);
+                final absent = s.totalSessions - s.present;
+                final double percent = s.percentOfClass().clamp(0.0, 100.0);
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -151,7 +151,7 @@ class _StudentStatsScreenState extends State<StudentStatsScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Tổng buổi: $total | Có mặt: ${s.present} | Vắng: ${s.absent}',
+                                'Tổng buổi: ${s.totalSessions} | Có mặt: ${s.present} | Vắng: $absent',
                                 style: TextStyle(
                                   color: Colors.grey.shade700,
                                   fontWeight: FontWeight.w500,
