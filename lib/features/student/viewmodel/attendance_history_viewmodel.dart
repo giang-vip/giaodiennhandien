@@ -18,17 +18,50 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
   List<AttendanceRecordModel> _history = [];
   List<AttendanceRecordModel> get history => _history;
 
-  int get totalSessions => _history.length;
+  // int get totalSessions => _history.length;
+  int _totalSessions = 0;
+  int get totalSessions => _totalSessions;
+
+  Future<void> fetchTotalSessions(String classId) async {
+    try {
+      final token = await _getValidToken();
+      if (token == null || token.isEmpty) {
+        throw Exception('Không tìm thấy token hợp lệ.');
+      }
+
+      final headers = {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+
+      final url = '$_baseUrl/sessions/class/$classId/count';
+      final response = await http.get(Uri.parse(url), headers: headers);
+
+      if (response.statusCode == 200) {
+        final bodyText = utf8.decode(response.bodyBytes);
+        final count = int.tryParse(bodyText) ?? 0;
+        _totalSessions = count;
+        notifyListeners();
+      } else {
+        throw Exception('Không lấy được tổng số buổi điểm danh.');
+      }
+    } catch (e) {
+      debugPrint('Lỗi lấy tổng số buổi: $e');
+    }
+  }
 
   int get totalPresent =>
       _history.where((r) => _isPresentStatus(r.status)).length;
 
-  int get totalAbsent =>
-      _history.where((r) => !_isPresentStatus(r.status)).length;
+  // int get totalAbsent =>
+  //     _history.where((r) => !_isPresentStatus(r.status)).length;
+
+  int get totalAbsent => _totalSessions - totalPresent;
 
   double get percentage {
     if (_history.isEmpty) return 0;
-    return (totalPresent / _history.length) * 100;
+    return (totalPresent / _totalSessions) * 100;
   }
 
   String get percentageText => '${percentage.toStringAsFixed(0)}%';
@@ -308,6 +341,7 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
     return _safeList(data);
   }
 
+  //khả năng là lấy all session *************************************************************************************************
   Future<Set<String>> _fetchSessionIdsOfClass({
     required String classId,
     required Map<String, String> headers,
@@ -423,6 +457,8 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
         throw Exception('Không xác định được lớp cần xem thống kê.');
       }
 
+      await fetchTotalSessions(currentClassId);
+
       final token = await _getValidToken();
 
       if (token == null || token.isEmpty) {
@@ -522,7 +558,7 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
       debugPrint('CLASS ID: $currentClassId');
       debugPrint('ACCEPTED RECORDS: $accepted');
       debugPrint('SKIPPED RECORDS: $skipped');
-      debugPrint('FINAL UNIQUE HISTORY: ${_history.length}');
+      debugPrint('FINAL UNIQUE HISTORY: ${_totalSessions}');
       debugPrint('=================================================');
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
