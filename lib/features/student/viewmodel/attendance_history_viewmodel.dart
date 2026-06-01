@@ -54,12 +54,14 @@ class AttendanceHistoryViewModel extends ChangeNotifier {
   int get totalPresent =>
       _history.where((r) => _isPresentStatus(r.status)).length;
 
-  int get totalAbsent =>
-      _history.where((r) => !_isPresentStatus(r.status)).length;
+  // int get totalAbsent =>
+  //     _history.where((r) => !_isPresentStatus(r.status)).length;
+
+  int get totalAbsent => _totalSessions - totalPresent;
 
   double get percentage {
     if (_history.isEmpty) return 0;
-    return (totalPresent / _history.length) * 100;
+    return (totalPresent / _totalSessions) * 100;
   }
 
   String get percentageText => '${percentage.toStringAsFixed(0)}%';
