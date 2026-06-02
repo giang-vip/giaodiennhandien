@@ -44,23 +44,71 @@ class AttendanceViewModel extends ChangeNotifier {
     return base64Encode(bytes);
   }
 
-  Future<void> _verifyFace(String studentId) async {
-    final base64 = await _imageToBase64(_selectedImage!);
+  // Future<void> _verifyFace(String studentId) async {
+  //   final base64 = await _imageToBase64(_selectedImage!);
+  //
+  //   // final response = await http.post(
+  //   //   Uri.parse(ApiConstants.faceRecognize),
+  //   //   headers: {'Content-Type': 'application/json'},
+  //   //   body: jsonEncode({
+  //   //     "image": base64,
+  //   //     "studentId": studentId,
+  //   //   }),
+  //   // );
+  //
+  //   final token = await _getToken();
+  //
+  //   final response = await http.post(
+  //     Uri.parse(ApiConstants.faceRecognize),
+  //     headers: {
+  //       'Content-Type': 'application/json',
+  //       'Authorization': 'Bearer $token',
+  //     },
+  //     body: jsonEncode({
+  //       "image": base64,
+  //       "studentId": studentId,
+  //     }),
+  //   );
+  //
+  //   if (response.statusCode != 200) {
+  //     throw Exception("Lỗi AI nhận diện khuôn mặt");
+  //   }
+  //
+  //   final aiData = jsonDecode(response.body);
+  //   final bool isSuccess = aiData['isSuccess'] == true;
+  //
+  //   if (!isSuccess) {
+  //     throw Exception(aiData['message'] ?? 'Khuôn mặt không khớp');
+  //   }
+  // }
 
-    final response = await http.post(
+  Future<void> _verifyFace(String studentId) async {
+    final token = await _getToken();
+
+    final request = http.MultipartRequest(
+      'POST',
       Uri.parse(ApiConstants.faceRecognize),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        "image": base64,
-        "studentId": studentId,
-      }),
     );
 
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields['studentId'] = studentId;
+
+    // gửi file ảnh trực tiếp
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'faceImage', // tên field phải khớp với backend
+        _selectedImage!.path,
+      ),
+    );
+
+    final response = await request.send();
+    final body = await response.stream.bytesToString();
+
     if (response.statusCode != 200) {
-      throw Exception("Lỗi AI nhận diện khuôn mặt");
+      throw Exception("Lỗi AI nhận diện khuôn mặt: $body");
     }
 
-    final aiData = jsonDecode(response.body);
+    final aiData = jsonDecode(body);
     final bool isSuccess = aiData['isSuccess'] == true;
 
     if (!isSuccess) {
@@ -536,15 +584,103 @@ class AttendanceViewModel extends ChangeNotifier {
     }
   }
 
+  // Future<bool> checkIn({
+  //   required int sessionId,
+  //   required String classId,
+  //   required int fallbackLocationId,
+  //   required String studentId,
+  // }) async {
+  //   if (_selectedImage == null) throw Exception("Chưa chụp ảnh");
+  //
+  //   final latestLocationId = await prepareLocationCheck(
+  //     sessionId: sessionId,
+  //     classId: classId,
+  //     fallbackLocationId: fallbackLocationId,
+  //   );
+  //
+  //   if (_isWithinAllowedArea != true) {
+  //     throw Exception("Sai vị trí phòng admin đang đặt");
+  //   }
+  //
+  //   _isLoading = true;
+  //   notifyListeners();
+  //
+  //   try {
+  //     await _verifyFace(studentId);
+  //
+  //
+  //     final token = await _getToken();
+  //
+  //     final request = http.MultipartRequest(
+  //       'POST',
+  //       Uri.parse('$_baseUrl/attendance/checkin'),
+  //     );
+  //
+  //     request.headers['Authorization'] = 'Bearer $token';
+  //     request.fields['sessionId'] = sessionId.toString();
+  //     request.fields['locationId'] = latestLocationId.toString();
+  //     request.fields['gpsLat'] = _currentPosition!.latitude.toString();
+  //     request.fields['gpsLng'] = _currentPosition!.longitude.toString();
+  //
+  //     request.files.add(
+  //       await http.MultipartFile.fromPath(
+  //         'faceImage',
+  //         _selectedImage!.path,
+  //       ),
+  //     );
+  //
+  //     final response = await request.send();
+  //     final body = await response.stream.bytesToString();
+  //
+  //     // if (response.statusCode == 200 || response.statusCode == 201) {
+  //     //   return true;
+  //     // } else {
+  //     //   final body = await response.stream.bytesToString();
+  //     //   throw Exception(body);
+  //     // }
+  //
+  //     if (response.statusCode == 200 || response.statusCode == 201) {
+  //       final data = jsonDecode(body);
+  //
+  //       final name = data['name'];
+  //       final confidence = (data['confidence'] as num).toDouble();
+  //       final message = data['message'];
+  //
+  //       print("FaceResponse: $name - $confidence - $message");
+  //
+  //       if (name == "Unknown" || confidence < 0.6) {
+  //         // hiện thông báo lỗi cho người dùng
+  //         throw Exception(message);
+  //       } else {
+  //         // hiện thông báo thành công
+  //         // ví dụ SnackBar
+  //         // ScaffoldMessenger.of(context).showSnackBar(
+  //         //   SnackBar(content: Text("Điểm danh thành công: $name"))
+  //         // );
+  //         return true;
+  //       }
+  //     } else {
+  //       throw Exception("Không thể kết nối AI Server (Lỗi ${response.statusCode})");
+  //     }
+  //   } finally {
+  //     _isLoading = false;
+  //     notifyListeners();
+  //   }
+  // }
+
   Future<bool> checkIn({
     required int sessionId,
     required String classId,
     required int fallbackLocationId,
     required String studentId,
   }) async {
-    if (_selectedImage == null) throw Exception("Chưa chụp ảnh");
 
-    final latestLocationId = await prepareLocationCheck(
+    if (_selectedImage == null) {
+      throw Exception("Chưa chụp ảnh");
+    }
+
+    // Chỉ kiểm tra vị trí
+    await prepareLocationCheck(
       sessionId: sessionId,
       classId: classId,
       fallbackLocationId: fallbackLocationId,
@@ -558,8 +694,11 @@ class AttendanceViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _verifyFace(studentId);
 
+      // TẠM THỜI KHÔNG VERIFY FACE TRƯỚC
+      // vì backend attendance/checkin đã tự gọi faceService.recognize()
+      //
+      // await _verifyFace(studentId);
 
       final token = await _getToken();
 
@@ -569,10 +708,20 @@ class AttendanceViewModel extends ChangeNotifier {
       );
 
       request.headers['Authorization'] = 'Bearer $token';
+
       request.fields['sessionId'] = sessionId.toString();
-      request.fields['locationId'] = latestLocationId.toString();
-      request.fields['gpsLat'] = _currentPosition!.latitude.toString();
-      request.fields['gpsLng'] = _currentPosition!.longitude.toString();
+
+      request.fields['gpsLat'] =
+          _currentPosition!.latitude.toString();
+
+      request.fields['gpsLng'] =
+          _currentPosition!.longitude.toString();
+
+      print("CheckIn sessionId: $sessionId");
+      print(
+        "GPS: ${_currentPosition!.latitude}, "
+            "${_currentPosition!.longitude}",
+      );
 
       request.files.add(
         await http.MultipartFile.fromPath(
@@ -584,41 +733,116 @@ class AttendanceViewModel extends ChangeNotifier {
       final response = await request.send();
       final body = await response.stream.bytesToString();
 
-      // if (response.statusCode == 200 || response.statusCode == 201) {
-      //   return true;
-      // } else {
-      //   final body = await response.stream.bytesToString();
-      //   throw Exception(body);
-      // }
+      print("CHECKIN STATUS: ${response.statusCode}");
+      print("CHECKIN BODY: $body");
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      if (response.statusCode == 200 ||
+          response.statusCode == 201) {
+
         final data = jsonDecode(body);
 
         final name = data['name'];
-        final confidence = (data['confidence'] as num).toDouble();
+        final confidence =
+        (data['confidence'] as num).toDouble();
+
         final message = data['message'];
 
-        print("FaceResponse: $name - $confidence - $message");
+        print(
+          "FaceResponse: "
+              "$name - $confidence - $message",
+        );
 
         if (name == "Unknown" || confidence < 0.6) {
-          // hiện thông báo lỗi cho người dùng
-          throw Exception(message);
-        } else {
-          // hiện thông báo thành công
-          // ví dụ SnackBar
-          // ScaffoldMessenger.of(context).showSnackBar(
-          //   SnackBar(content: Text("Điểm danh thành công: $name"))
-          // );
-          return true;
+          throw Exception(
+            message ?? "Khuôn mặt không khớp",
+          );
         }
-      } else {
-        throw Exception("Không thể kết nối AI Server (Lỗi ${response.statusCode})");
+
+        return true;
       }
+
+      throw Exception(body);
+
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
+
+  // Future<bool> checkIn({
+  //   required int sessionId,
+  //   required String classId,
+  //   required int fallbackLocationId,
+  //   required String studentId,
+  // }) async {
+  //   if (_selectedImage == null) throw Exception("Chưa chụp ảnh");
+  //
+  //   // 1. Chuẩn bị và kiểm tra vị trí
+  //   final latestLocationId = await prepareLocationCheck(
+  //     sessionId: sessionId,
+  //     classId: classId,
+  //     fallbackLocationId: fallbackLocationId,
+  //   );
+  //
+  //   if (_isWithinAllowedArea != true) {
+  //     throw Exception("Sai vị trí phòng admin đang đặt");
+  //   }
+  //
+  //   _isLoading = true;
+  //   notifyListeners();
+  //
+  //   try {
+  //     // 2. Gọi verifyFace trước khi gửi checkin
+  //     await _verifyFace(studentId);
+  //
+  //     // 3. Lấy token
+  //     final token = await _getToken();
+  //
+  //     // 4. Tạo multipart request
+  //     final request = http.MultipartRequest(
+  //       'POST',
+  //       Uri.parse('$_baseUrl/attendance/checkin'),
+  //     );
+  //
+  //     request.headers['Authorization'] = 'Bearer $token';
+  //     request.fields['sessionId'] = sessionId.toString();
+  //     request.fields['locationId'] = latestLocationId.toString();
+  //     request.fields['gpsLat'] = _currentPosition!.latitude.toString();
+  //     request.fields['gpsLng'] = _currentPosition!.longitude.toString();
+  //
+  //     request.files.add(
+  //       await http.MultipartFile.fromPath(
+  //         'faceImage', // phải khớp với backend
+  //         _selectedImage!.path,
+  //       ),
+  //     );
+  //
+  //     // 5. Gửi request
+  //     final response = await request.send();
+  //     final body = await response.stream.bytesToString();
+  //
+  //     if (response.statusCode == 200 || response.statusCode == 201) {
+  //       final data = jsonDecode(body);
+  //
+  //       final name = data['name'];
+  //       final confidence = (data['confidence'] as num).toDouble();
+  //       final message = data['message'];
+  //
+  //       print("FaceResponse: $name - $confidence - $message");
+  //
+  //       if (name == "Unknown" || confidence < 0.6) {
+  //         throw Exception(message);
+  //       } else {
+  //         return true;
+  //       }
+  //     } else {
+  //       throw Exception("Không thể kết nối AI Server (Lỗi ${response.statusCode})");
+  //     }
+  //   } finally {
+  //     _isLoading = false;
+  //     notifyListeners();
+  //   }
+  // }
 
   void clearData() {
     _selectedImage = null;
