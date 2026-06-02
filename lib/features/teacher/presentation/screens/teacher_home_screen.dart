@@ -485,7 +485,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen>
           crossAxisCount: 2,
           crossAxisSpacing: 14,
           mainAxisSpacing: 14,
-          childAspectRatio: 1.15,
+          childAspectRatio: 0.9,
           children: [
             _buildFeatureCard(
               title: 'Tạo lớp mới',
