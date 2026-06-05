@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/services/mock_location_service.dart';
 
 class AttendanceViewModel extends ChangeNotifier {
   final String _baseUrl = ApiConstants.baseUrl;
@@ -39,34 +40,6 @@ class AttendanceViewModel extends ChangeNotifier {
   int _latestLocationId = 0;
   int get latestLocationId => _latestLocationId;
 
-  Future<String> _imageToBase64(File imageFile) async {
-    List<int> bytes = await imageFile.readAsBytes();
-    return base64Encode(bytes);
-  }
-
-  Future<void> _verifyFace(String studentId) async {
-    final base64 = await _imageToBase64(_selectedImage!);
-
-    final response = await http.post(
-      Uri.parse(ApiConstants.faceRecognize),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        "image": base64,
-        "studentId": studentId,
-      }),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception("Lỗi AI nhận diện khuôn mặt");
-    }
-
-    final aiData = jsonDecode(response.body);
-    final bool isSuccess = aiData['isSuccess'] == true;
-
-    if (!isSuccess) {
-      throw Exception(aiData['message'] ?? 'Khuôn mặt không khớp');
-    }
-  }
 
   double _toDouble(dynamic value, {double defaultValue = 0.0}) {
     if (value == null) return defaultValue;
@@ -145,6 +118,16 @@ class AttendanceViewModel extends ChangeNotifier {
     _currentPosition = await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
     );
+
+    final isMock = await MockLocationService.isMockLocation(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+    );
+
+    if (isMock) {
+      throw Exception("Phát hiện vị trí giả lập (mock location)");
+    }
+
 
     notifyListeners();
   }
@@ -536,30 +519,42 @@ class AttendanceViewModel extends ChangeNotifier {
     }
   }
 
+
   Future<bool> checkIn({
     required int sessionId,
     required String classId,
     required int fallbackLocationId,
     required String studentId,
   }) async {
-    if (_selectedImage == null) throw Exception("Chưa chụp ảnh");
 
-    final latestLocationId = await prepareLocationCheck(
-      sessionId: sessionId,
-      classId: classId,
-      fallbackLocationId: fallbackLocationId,
-    );
+    if (_selectedImage == null) {
+      throw Exception("Chưa chụp ảnh");
+    }
+
+    // Chỉ kiểm tra vị trí
+    // await prepareLocationCheck(
+    //   sessionId: sessionId,
+    //   classId: classId,
+    //   fallbackLocationId: fallbackLocationId,
+    // );
+    //
+    // if (_isWithinAllowedArea != true) {
+    //   throw Exception("Sai vị trí phòng admin đang đặt");
+    // }
 
     if (_isWithinAllowedArea != true) {
-      throw Exception("Sai vị trí phòng admin đang đặt");
+      throw Exception("Vui lòng kiểm tra vị trí trước khi điểm danh");
     }
 
     _isLoading = true;
     notifyListeners();
 
     try {
-      await _verifyFace(studentId);
 
+      // TẠM THỜI KHÔNG VERIFY FACE TRƯỚC
+      // vì backend attendance/checkin đã tự gọi faceService.recognize()
+      //
+      // await _verifyFace(studentId);
 
       final token = await _getToken();
 
@@ -569,10 +564,20 @@ class AttendanceViewModel extends ChangeNotifier {
       );
 
       request.headers['Authorization'] = 'Bearer $token';
+
       request.fields['sessionId'] = sessionId.toString();
-      request.fields['locationId'] = latestLocationId.toString();
-      request.fields['gpsLat'] = _currentPosition!.latitude.toString();
-      request.fields['gpsLng'] = _currentPosition!.longitude.toString();
+
+      request.fields['gpsLat'] =
+          _currentPosition!.latitude.toString();
+
+      request.fields['gpsLng'] =
+          _currentPosition!.longitude.toString();
+
+      print("CheckIn sessionId: $sessionId");
+      print(
+        "GPS: ${_currentPosition!.latitude}, "
+            "${_currentPosition!.longitude}",
+      );
 
       request.files.add(
         await http.MultipartFile.fromPath(
@@ -584,36 +589,36 @@ class AttendanceViewModel extends ChangeNotifier {
       final response = await request.send();
       final body = await response.stream.bytesToString();
 
-      // if (response.statusCode == 200 || response.statusCode == 201) {
-      //   return true;
-      // } else {
-      //   final body = await response.stream.bytesToString();
-      //   throw Exception(body);
-      // }
+      print("CHECKIN STATUS: ${response.statusCode}");
+      print("CHECKIN BODY: $body");
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      if (response.statusCode == 200 ||
+          response.statusCode == 201) {
+
         final data = jsonDecode(body);
 
         final name = data['name'];
-        final confidence = (data['confidence'] as num).toDouble();
+        final confidence =
+        (data['confidence'] as num).toDouble();
+
         final message = data['message'];
 
-        print("FaceResponse: $name - $confidence - $message");
+        print(
+          "FaceResponse: "
+              "$name - $confidence - $message",
+        );
 
         if (name == "Unknown" || confidence < 0.6) {
-          // hiện thông báo lỗi cho người dùng
-          throw Exception(message);
-        } else {
-          // hiện thông báo thành công
-          // ví dụ SnackBar
-          // ScaffoldMessenger.of(context).showSnackBar(
-          //   SnackBar(content: Text("Điểm danh thành công: $name"))
-          // );
-          return true;
+          throw Exception(
+            message ?? "Khuôn mặt không khớp",
+          );
         }
-      } else {
-        throw Exception("Không thể kết nối AI Server (Lỗi ${response.statusCode})");
+
+        return true;
       }
+
+      throw Exception(body);
+
     } finally {
       _isLoading = false;
       notifyListeners();
