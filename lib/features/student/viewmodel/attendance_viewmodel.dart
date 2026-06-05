@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/services/mock_location_service.dart';
 
 class AttendanceViewModel extends ChangeNotifier {
   final String _baseUrl = ApiConstants.baseUrl;
@@ -117,6 +118,16 @@ class AttendanceViewModel extends ChangeNotifier {
     _currentPosition = await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
     );
+
+    final isMock = await MockLocationService.isMockLocation(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+    );
+
+    if (isMock) {
+      throw Exception("Phát hiện vị trí giả lập (mock location)");
+    }
+
 
     notifyListeners();
   }
